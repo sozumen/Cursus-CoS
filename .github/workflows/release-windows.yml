@@ -1,0 +1,43 @@
+# Builds the Windows installer and publishes it as a GitHub Release whenever the app changes on main.
+# Installed copies of the app find the new release by themselves, download it and offer to restart.
+# Your data is stored outside the program folder (in %APPDATA%\Cursus CoS), so an update never touches it.
+name: Release Windows app
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'electron/**'
+      - 'scripts/**'
+      - 'build/**'
+      - 'package.json'
+      - 'tailwind.config.js'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # --ignore-scripts: skips the Android icon tool and other things this build does not need
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      # Each run gets the next version number (1.0.1, 1.0.2, ...). Installed apps update when the number is higher than theirs.
+      - name: Set version
+        shell: bash
+        run: npm pkg set version=1.0.${{ github.run_number }}
+      - run: node scripts/build.mjs
+      - name: Build installer and publish release
+        run: npx electron-builder --win nsis --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

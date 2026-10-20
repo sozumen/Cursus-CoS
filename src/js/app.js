@@ -2634,7 +2634,15 @@ function tick(){
 }
 function registerSW(){
   try{
-    if (Host.platform === 'web' && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol) && window.COS_BUILD !== 'single') navigator.serviceWorker.register('sw.js').catch(() => {});
+    if (Host.platform === 'web' && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol) && window.COS_BUILD !== 'single'){
+      const had = !!navigator.serviceWorker.controller;   // false on the very first visit: nothing to announce then
+      navigator.serviceWorker.register('sw.js').then(reg => {
+        const look = () => reg.update().catch(() => {});
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') look(); });
+        setInterval(look, 3600 * 1000);
+      }).catch(() => {});
+      navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) toast('A new version of Cursus CoS is ready. Your data is kept.', { label:'Reload', fn:() => location.reload() }, 60000); });
+    }
   }catch(e){}
 }
 async function boot(){

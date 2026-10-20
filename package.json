@@ -16,7 +16,8 @@
     "cap:open": "cap open android",
     "assets": "capacitor-assets generate --android",
     "dist:win:msi": "npm run build && electron-builder --win msi",
-    "dist:win:setup": "npm run build && electron-builder --win nsis"
+    "dist:win:setup": "npm run build && electron-builder --win nsis",
+    "dist:win:release": "npm run build && electron-builder --win nsis --publish always"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
@@ -25,6 +26,7 @@
     "@capacitor/filesystem": "^8.1.5",
     "@capacitor/local-notifications": "^8.3.1",
     "@capacitor/preferences": "^8.0.1",
+    "electron-updater": "^6.8.9",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
@@ -67,16 +69,29 @@
       "createStartMenuShortcut": true,
       "shortcutName": "Cursus CoS",
       "deleteAppDataOnUninstall": false,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "artifactName": "Cursus-CoS-Setup-${version}.${ext}"
     },
     "msi": {
       "oneClick": false,
       "perMachine": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "runAfterFinish": false
+      "runAfterFinish": false,
+      "artifactName": "Cursus-CoS-${version}.${ext}"
     },
-    "artifactName": "${productName}-${version}-${os}-setup.${ext}"
+    "artifactName": "Cursus-CoS-${version}-${os}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "sozumen",
+        "repo": "Cursus-CoS",
+        "releaseType": "release"
+      }
+    ],
+    "portable": {
+      "artifactName": "Cursus-CoS-Portable-${version}.${ext}"
+    }
   },
   "author": {
     "name": "Cursus CoS"

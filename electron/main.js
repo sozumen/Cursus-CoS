@@ -82,6 +82,7 @@ function buildTray(){
   tray.setToolTip('Cursus CoS');
   const refresh = () => tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Cursus CoS', click: showWindow },
+    { label: 'Check for updates (version ' + app.getVersion() + ')', click: () => checkForUpdates(true) },
     { type: 'separator' },
     { label: 'Keep running in the tray when closed', type: 'checkbox', checked: cfg.closeToTray, click: m => { cfg.closeToTray = m.checked; saveCfg(); } },
     { label: 'Safe graphics mode (restart to apply)', type: 'checkbox', checked: !!cfg.safeGraphics, click: m => { cfg.safeGraphics = m.checked; saveCfg(); } },
@@ -169,11 +170,53 @@ handle('sync:write', async text => {
   lastWrite = Date.now(); await writeAtomic(cfg.syncFile, String(text)); lastWrite = Date.now();
 });
 
+/* ---------- safety net: a dated copy of the data, once a day ----------
+   Updates never touch the data folder, but a bad release should never be able to cost you your tasks. The last 7 days are kept
+   in  %APPDATA%\Cursus CoS\backups  (copy a folder back into  data  to go back to that day). */
+async function dailyBackup(){
+  try{
+    const day = new Date().toISOString().slice(0, 10), root = path.join(app.getPath('userData'), 'backups'), dest = path.join(root, day);
+    if (!fs.existsSync(dataDir()) || fs.existsSync(dest)) return;
+    await fsp.mkdir(dest, { recursive: true });
+    for (const f of await fsp.readdir(dataDir())) if (f.endsWith('.json')) await fsp.copyFile(path.join(dataDir(), f), path.join(dest, f));
+    const old = (await fsp.readdir(root)).filter(n => /^\d{4}-\d{2}-\d{2}$/.test(n)).sort().slice(0, -7);
+    for (const n of old) await fsp.rm(path.join(root, n), { recursive: true, force: true });
+  }catch(e){ logCrash('backup', e); }
+}
+
+/* ---------- updates ----------
+   The installed (Setup) app checks the GitHub Releases page for a newer version, downloads it in the background and offers to
+   restart. Your data lives in %APPDATA%, outside the program folder, so it is carried over untouched. The portable exe and
+   development runs do not update themselves. */
+let updater = null, updateState = { status: 'idle', version: '' };
+function setupUpdates(){
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_DIR) return;
+  try{ updater = require('electron-updater').autoUpdater; }catch(e){ logCrash('update', e); return; }
+  updater.autoDownload = true; updater.autoInstallOnAppQuit = true; updater.logger = null;
+  updater.on('checking-for-update', () => { updateState.status = 'checking'; });
+  updater.on('update-not-available', () => { updateState.status = 'current'; });
+  updater.on('update-available', info => { updateState = { status: 'downloading', version: info.version }; });
+  updater.on('error', e => { updateState.status = 'error'; logCrash('update', e); });
+  updater.on('update-downloaded', async info => {
+    updateState = { status: 'ready', version: info.version };
+    const r = await dialog.showMessageBox(win && win.isVisible() ? win : undefined, { type: 'info', buttons: ['Restart now', 'Later'], defaultId: 0, cancelId: 1, title: 'Cursus CoS update',
+      message: 'Version ' + info.version + ' is ready.', detail: 'Your tasks and settings are kept. Restart to finish updating, or it will install the next time you quit.' });
+    if (r.response === 0){ quitting = true; updater.quitAndInstall(); }
+  });
+}
+function checkForUpdates(manual){
+  if (!updater){ if (manual) dialog.showMessageBox({ type: 'info', title: 'Cursus CoS', message: 'Updates are only checked in the installed app.', detail: 'This copy (portable or development) does not update itself. Install the Setup version from the project\'s Releases page.' }); return; }
+  updater.checkForUpdates().then(r => {
+    if (manual && r && r.updateInfo && r.updateInfo.version === app.getVersion()) dialog.showMessageBox({ type: 'info', title: 'Cursus CoS', message: 'You have the latest version (' + app.getVersion() + ').' });
+  }).catch(e => { logCrash('update', e); if (manual) dialog.showErrorBox('Could not check for updates', String(e && e.message || e)); });
+}
+
 /* ---------- lifecycle ---------- */
 app.on('second-instance', showWindow);
 app.on('before-quit', () => { quitting = true; });
 app.on('window-all-closed', () => { if (quitting || !cfg.closeToTray) app.quit(); });
 app.whenReady().then(() => {
-  loadCfg(); buildMenu(); createWindow(); try{ buildTray(); }catch(e){ logCrash('tray', e); } watchSyncFile();
+  loadCfg(); dailyBackup(); buildMenu(); createWindow(); try{ buildTray(); }catch(e){ logCrash('tray', e); } watchSyncFile();
+  setupUpdates(); setTimeout(() => checkForUpdates(false), 15000); setInterval(() => checkForUpdates(false), 6 * 3600 * 1000);
   app.on('activate', () => { if (!win) createWindow(); });
 });

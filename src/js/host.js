@@ -111,9 +111,10 @@
     const h = {}; r.headers.forEach((v, k) => { h[k] = v; });
     return { status: r.status, headers: h, text: await r.text() };
   }
+  const BUILD = '__BUILD__';   // filled in by scripts/build.mjs
   async function info(){
     if (el && el.info) { try{ return await el.info(); }catch(e){} }
-    return { platform, version: '', dataPath: '' };
+    return { platform, version: platform === 'web' && BUILD && BUILD[0] !== '_' ? 'web build ' + BUILD : '', dataPath: '' };
   }
 
   CoS.host = {

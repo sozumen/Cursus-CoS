@@ -60,7 +60,8 @@ copy(path.join(root, 'node_modules', 'socket.io-client', 'dist', 'socket.io.min.
 
 // 5. service worker (PWA) with the real file list
 const files = walk(WWW).map(f => path.relative(WWW, f).split(path.sep).join('/'));
-const build = crypto.createHash('sha1').update(files.map(f => f + fs.statSync(path.join(WWW, f)).size).join('|')).digest('hex').slice(0, 10);
+const build = crypto.createHash('sha1').update(files.map(f => f + ':' + crypto.createHash('sha1').update(fs.readFileSync(path.join(WWW, f))).digest('hex')).join('|')).digest('hex').slice(0, 10);   // by content, so any change gives a new cache name
+fs.writeFileSync(path.join(WWW, 'js', 'host.js'), fs.readFileSync(path.join(WWW, 'js', 'host.js'), 'utf8').replace("'__BUILD__'", JSON.stringify(build)));
 fs.writeFileSync(path.join(WWW, 'sw.js'), fs.readFileSync(path.join(SRC, 'sw.js'), 'utf8')
   .replace('__BUILD__', build).replace('__FILES__', JSON.stringify(['./', ...files.filter(f => f !== 'sw.js')])));
 console.log(`www/ ready (${files.length + 1} files, build ${build})`);

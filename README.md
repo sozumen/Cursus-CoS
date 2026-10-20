@@ -1,7 +1,5 @@
 # Cursus CoS
 
-A drag-and-drop, customizable Kanban style personal task management app
-
 Kanban, table and calendar task management with multiple boards, automatic column moves, reminders,
 custom backgrounds and a ready-made seam for Exchange email. **One web codebase, three ways to run it:**
 
@@ -309,3 +307,22 @@ A hosted copy gives you the app on every device (phone, tablet, other PCs) at on
    - On an iPhone or iPad, use Share → Add to Home Screen. Safari forgets sites it has not seen for a week; an installed app is kept.
 
 Microsoft limits web sign-ins to about a day. The page renews it quietly (it briefly reloads); you are only asked again if Microsoft wants a password.
+
+## Updates: how a change reaches every device without losing data
+Your data is never part of the app. It lives in the browser's storage (web), in `%APPDATA%\Cursus CoS` (Windows) or the app's storage (Android), and in your OneDrive file. Updating the app replaces only the program.
+
+| Device | How it updates | What you do |
+|---|---|---|
+| **Web (GitHub Pages)** | Every push to `main` is built and published by `.github/workflows/pages.yml`. | Nothing. Open the app; a "new version is ready, Reload" message appears. |
+| **Windows (installed)** | Every push that changes the app is built by `.github/workflows/release-windows.yml` into a GitHub Release (`1.0.<run number>`). The installed app checks 15 seconds after start and every 6 hours, downloads it, and asks to restart. | Click **Restart now** (or just quit; it installs on exit). Tray icon → *Check for updates* checks on demand. |
+| **Android** | Not automatic yet. Until there is an APK, open the web app in Chrome and use **Add to Home screen**; it updates like the web app and syncs through OneDrive. | See below. |
+
+**First Windows install:** download `Cursus-CoS-Setup-<version>.exe` from the repository's **Releases** page and run it once (Windows SmartScreen may say "Windows protected your PC": More info → Run anyway; the app is not code-signed). After that it keeps itself current. The portable `.exe` and `npm start` do not self-update.
+
+**Safety nets**
+- Windows keeps a dated copy of your data once a day in `%APPDATA%\Cursus CoS\backups` (last 7 days). To go back, quit the app and copy a day's files into the `data` folder.
+- With OneDrive sync on, the file in OneDrive is a second copy.
+- Old data is upgraded automatically when the app starts (`normalize` in `core.js`); tests restore backups from earlier versions and damaged files.
+- Keep the app ID (`com.cursus.cos`) and the OneDrive file name unchanged, or an update would look like a different app.
+
+**Android, later.** An APK only updates in place if every build is signed with the same key, and the key must never be lost or regenerated, or Android refuses the update and the app (with its local data) has to be uninstalled. When you build the first APK, create one keystore, keep a copy somewhere safe, and store it as a GitHub secret so a workflow can sign every build with it. Google Play (internal testing, a one-time $25 developer fee) is the only way Android updates itself without you.
