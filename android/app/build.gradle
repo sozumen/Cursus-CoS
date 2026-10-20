@@ -8,8 +8,8 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // CI passes the build number: ./gradlew assembleRelease -PappVersionCode=17 -PappVersionName=1.0.17
-        versionCode (project.findProperty('appVersionCode') ?: '1').toInteger()
-        versionName (project.findProperty('appVersionName') ?: '1.0')
+        versionCode = Integer.parseInt((project.findProperty('appVersionCode') ?: '1').toString())
+        versionName = (project.findProperty('appVersionName') ?: '1.0').toString()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -32,7 +32,7 @@ android {
     }
     buildTypes {
         release {
-            signingConfig System.getenv('ANDROID_KEYSTORE_FILE') ? signingConfigs.release : signingConfigs.debug
+            signingConfig = (System.getenv('ANDROID_KEYSTORE_FILE') ? signingConfigs.release : signingConfigs.debug)
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
