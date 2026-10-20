@@ -928,6 +928,38 @@ function openTask(id, defaults){
   renderModal();
   if (isNew) setTimeout(() => { const i = $('#mTitle'); if (i) i.focus(); }, 30);
 }
+/* ---------- making an existing task a subtask of another ---------- */
+const isUnder = (id, ancestorId) => { const seen = new Set(); let cur = T(id); while (cur && cur.parentId && !seen.has(cur.id)){ seen.add(cur.id); if (cur.parentId === ancestorId) return true; cur = T(cur.parentId); } return false; };
+function parentResultsHTML(){
+  const m = ui.modal, d = m.draft, q = (m.parentQ || '').trim().toLowerCase();
+  let list = S.tasks.filter(t => t.id !== d.id && !t.archived && t.id !== d.parentId && !isUnder(t.id, d.id));   // not itself, not one of its own subtasks (that would loop)
+  list = q ? list.filter(t => t.title.toLowerCase().includes(q)) : list.filter(t => t.boardId === d.boardId && !isDone(t));
+  const res = list.slice(0, 8);
+  if (!res.length) return `<div class="dep-res"><p class="note" style="padding:10px">${q ? 'No matching tasks.' : 'Type to search all your tasks.'}</p></div>`;
+  const multi = S.boards.length > 1;
+  return `<div class="dep-res">${res.map(t => `<button type="button" data-act="parent-pick" data-id="${t.id}"><span class="dot" style="background:${hsl(stg(t).h, Math.max(stg(t).s, 30), 52)}"></span><span class="truncate" style="flex:1">${esc(t.title)}</span>${multi ? `<span class="note truncate" style="max-width:110px">${esc(boardName(t.boardId))}</span>` : ''}</button>`).join('')}</div>`;
+}
+function parentBlockHTML(m, d, parent){
+  const picker = m.parentOpen ? `<div style="margin-top:8px"><input id="parentQ" class="inp" placeholder="Search for the parent task" value="${esc(m.parentQ || '')}" aria-label="Search for the parent task" autocomplete="off"><div id="parentResults">${parentResultsHTML()}</div></div>` : '';
+  if (parent) return `<div class="parent-row" style="margin:2px 0 10px"><div class="flex items-center gap-2" style="flex-wrap:wrap"><span class="note">Subtask of</span><button class="truncate" style="color:var(--accent);font-weight:600;max-width:100%" data-act="open-task" data-id="${parent.id}">${esc(parent.title)}</button><span style="flex:1"></span><button class="btn btn-sm" data-act="${m.parentOpen ? 'parent-close' : 'parent-open'}">${m.parentOpen ? 'Cancel' : 'Change'}</button><button class="btn btn-sm" data-act="parent-rm">Make independent</button></div>${picker}</div>`;
+  return `<div class="parent-row" style="margin:2px 0 10px">${m.parentOpen ? `<div class="flex items-center gap-2"><span class="note" style="flex:1">Make this a subtask of…</span><button class="btn btn-ghost btn-sm" data-act="parent-close">Cancel</button></div>` : `<button class="btn btn-sm" data-act="parent-open">${ic('corner-down-right')}Make this a subtask of…</button>`}${picker}</div>`;
+}
+/* Keeps both sides of the link in step: the child's parentId and the parent's subtask list. */
+function syncParentLink(c, oldId, oldSubs){
+  const newId = c.parentId || null;
+  if (oldId !== newId){
+    const op = oldId ? T(oldId) : null;
+    if (op){ op.subitems = op.subitems.filter(x => x.taskId !== c.id); op.updated = nowISO(); logTask(op, `"${c.title}" is no longer a subtask of this task`); }
+    const np = newId ? T(newId) : null;
+    if (np && !np.subitems.some(x => x.taskId === c.id)){
+      np.subitems.push({ id:uid(), title:c.title, done:false, taskId:c.id }); np.updated = nowISO();
+      logTask(np, `"${c.title}" added as a subtask`); logTask(c, `Made a subtask of "${np.title}"`);
+    } else if (!np) c.parentId = null;
+    if (oldId && !newId) logTask(c, 'No longer a subtask');
+  }
+  // a linked subtask taken out of this task's own list is released
+  for (const x of oldSubs || []) if (x.taskId && !c.subitems.some(y => y.taskId === x.taskId)){ const k = T(x.taskId); if (k && k.parentId === c.id){ k.parentId = null; k.updated = nowISO(); logTask(k, `No longer a subtask of "${c.title}"`); } }
+}
 function depResultsHTML(){
   const m = ui.modal, d = m.draft, q = (m.depQ || '').trim().toLowerCase(); if (!q) return '';
   const ov = depOverrides(m, d), res = S.tasks.filter(t => t.id !== d.id && !t.archived && !d.deps.includes(t.id) && t.title.toLowerCase().includes(q) && !wouldCycle(d.id, t.id, ov)).slice(0, 8);
@@ -1029,6 +1061,7 @@ function modalHTML(){
     <div class="m-body">
       <div class="m-main">
         <input id="mTitle" class="m-title" data-f="title" placeholder="Task title" value="${esc(d.title)}" maxlength="200" aria-label="Task title">
+        ${parentBlockHTML(m, d, parent)}
         ${main}${comments}
       </div>
       <div class="m-side">
@@ -1093,7 +1126,7 @@ function commitDraft(){
   const m = ui.modal, d = m.draft; if (!d) return null;
   const est = $('#fEst'); if (est) d.estimate = parseEst(est.value);
   d.title = (d.title || '').trim() || 'Untitled task';
-  const orig = T(d.id);
+  const orig = T(d.id), oldParent = orig ? orig.parentId || null : null, oldSubs = orig ? clone(orig.subitems || []) : [];
   if (!orig){
     d.order = nextOrder(d.status); if (d.status === 'scheduled') d.scheduledFlow = true;
     logTask(d, 'Created'); S.tasks.push(d); m.isNew = false; fireRules(d, { type:'created' });
@@ -1111,6 +1144,7 @@ function commitDraft(){
     if (statusChanged){ afterStatus(d, orig.status); fireRules(d, { type:'moved', value:d.status }); queueFollowUp(d); }
     if (orig.importance !== d.importance) fireRules(d, { type:'priority', value:d.importance });
   }
+  syncParentLink(d, oldParent, oldSubs);
   applyBlocking(d, m); followParent(d);
   if (d.reminder){ const k = fireTime(d, S.settings.reminderTime); if (k && d.reminder.ack && d.reminder.ack !== k.toISOString()){ d.reminder.ack = null; d.reminder.notified = null; } }
   runAutomation(); save(); return d;
@@ -1455,7 +1489,7 @@ function renderCtx(){
     items = ctxI('ctx-done', isDone(t) ? 'circle' : 'check-circle-2', isDone(t) ? 'Mark not complete' : 'Mark complete')
       + ctxI('ctx-rename', 'pencil', 'Rename') + ctxI('ctx-sub', 'layout-dashboard', 'Change Position', '', 'data-sub="position"')
       + '<div class="ctx-sep"></div>' + ctxI('ctx-share', 'external-link', 'Share link') + ctxI('ctx-ptags', 'star', 'Edit personal tags')
-      + ctxI('ctx-dup', 'copy', 'Duplicate') + ctxI('ctx-sub', 'arrow-right', 'Move Task', '', 'data-sub="move"') + ctxI('ctx-sub', 'copy', 'Copy Task', '', 'data-sub="copy"')
+      + ctxI('ctx-dup', 'copy', 'Duplicate') + ctxI('ctx-parent', 'corner-down-right', t.parentId && T(t.parentId) ? 'Change parent task…' : 'Make a subtask of…') + ctxI('ctx-sub', 'arrow-right', 'Move Task', '', 'data-sub="move"') + ctxI('ctx-sub', 'copy', 'Copy Task', '', 'data-sub="copy"')
       + ctxI('ctx-subscribe', 'rss', isSub(t.id) ? 'Unsubscribe' : 'Subscribe')
       + '<div class="ctx-sep"></div>' + ctxI('ctx-archive', 'archive', t.archived ? 'Restore from archive' : 'Archive', 'danger') + ctxI('ctx-delete', 'trash-2', 'Delete', 'danger');
   } else if (c.sub === 'position'){
@@ -2369,6 +2403,10 @@ const ACTIONS = {
     commitDraft(); ui.modal.draft = clone(T(d.id)); ui.modal.snap = JSON.stringify(ui.modal.draft); renderModal(); render();
     toast(`Created a task from the subitem${wasNew ? ' (parent saved too)' : ''}.`, { label:'Open', fn:() => openTask(child.id) }, 5000);
   },
+  'parent-open'(){ ui.modal.parentOpen = true; ui.modal.parentQ = ''; renderModal(); setTimeout(() => { const i = $('#parentQ'); if (i) i.focus(); }, 30); },
+  'parent-close'(){ ui.modal.parentOpen = false; renderModal(); },
+  'parent-pick'(el){ const m = ui.modal, d = m.draft, id = el.dataset.id; if (!T(id) || id === d.id || isUnder(id, d.id)) return; d.parentId = id; m.parentOpen = false; renderModal(); },
+  'parent-rm'(){ const m = ui.modal; m.draft.parentId = null; m.parentOpen = false; renderModal(); },
   'dep-add'(el){ const m = ui.modal, d = m.draft; if (!d.deps.includes(el.dataset.id) && !wouldCycle(d.id, el.dataset.id, depOverrides(m, d))) d.deps.push(el.dataset.id); m.depQ = ''; renderModal(); },
   'block-add'(el){ const m = ui.modal, d = m.draft, id = el.dataset.id; if (!blockingIds(m, d).includes(id) && !wouldCycle(id, d.id, depOverrides(m, d))){ m.bRm = m.bRm.filter(x => x !== id); if (!(T(id) && T(id).deps.includes(d.id))) m.bAdd.push(id); } m.blockQ = ''; renderModal(); },
   'block-rm'(el){ const m = ui.modal, id = el.dataset.id; m.bAdd = m.bAdd.filter(x => x !== id); const o = T(id); if (o && o.deps.includes(m.draft.id) && !m.bRm.includes(id)) m.bRm.push(id); renderModal(); },
@@ -2398,6 +2436,7 @@ const ACTIONS = {
   'ctx-back'(){ ui.ctx.sub = null; renderCtx(); },
   'ctx-share'(){ const id = ui.ctx.id; closeCtx(); copyText(taskLink(id), 'Link copied. Opening it in a browser shows this task.'); },
   'ctx-ptags'(){ openPtags(ui.ctx.id); },
+  'ctx-parent'(){ const id = ui.ctx.id; closeCtx(); openTask(id); if (ui.modal && ui.modal.type === 'task') ACTIONS['parent-open'](); },
   'ctx-dup'(){ const id = ui.ctx.id; closeCtx(); const c = duplicateTask(id); render(); if (c) toast('Duplicated.', { label:'Open', fn:() => openTask(c.id) }, 4000); },
   'ctx-subscribe'(){ const id = ui.ctx.id; closeCtx(); toggleSubscribe(id); },
   'ctx-archive'(){ const id = ui.ctx.id; closeCtx(); archiveWithUndo(id); },
@@ -2586,6 +2625,7 @@ document.addEventListener('input', e => {
   }
   if (el.dataset.imp === 'newName' && ui.modal && ui.modal.type === 'import'){ ui.modal.newName = el.value; return; }
   if (el.id === 'search'){ ui.search = el.value; renderContent(); const s = $('#tbStats'); if (s) s.textContent = statsText(); return; }
+  if (el.id === 'parentQ' && ui.modal){ ui.modal.parentQ = el.value; $('#parentResults').innerHTML = parentResultsHTML(); icons(); return; }
   if (el.id === 'depQ' && ui.modal){ ui.modal.depQ = el.value; $('#depResults').innerHTML = depResultsHTML(); icons(); return; }
   if (el.id === 'pasteIn' && ui.modal && ui.modal.type === 'paste'){
     ui.modal.text = el.value; $('#pastePreview').innerHTML = pasteSummaryHTML(); icons();

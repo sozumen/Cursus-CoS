@@ -945,3 +945,54 @@ test('settings: the stale-task rules can be changed, and a longer limit stops th
   assert.ok(t.review && t.review.to === 'up-next', 'new limit and target take effect');
   assert.deepEqual(a.errs, []); a.close();
 });
+
+/* ---------- making an existing task a subtask of another ---------- */
+test('an existing task can be made a subtask of another, moved to a different parent, and released', { skip }, async () => {
+  const a = await launch(), { d, click, typeIn } = a, bid = S(a).boards[0].id;
+  const mk = title => { const t = a.w.CoS.core.newTask({ boardId: bid, title, status: 'consider' }); S(a).tasks.push(t); return t; };
+  const raw = [mk('Child task'), mk('Parent one'), mk('Parent two'), mk('Grandchild of child')];
+  raw[3].parentId = raw[0].id; raw[0].subitems.push({ id: 'sd', title: raw[3].title, done: false, taskId: raw[3].id });
+  const live = t => new Proxy({}, { get: (_, k) => S(a).tasks.find(x => x.id === t.id)[k] });   // saving replaces the task object, so always look it up again
+  const [A, B, C, D] = raw.map(live); void D;
+  const save = () => click('[data-act=save-task]');
+  // attach: search, pick, save
+  a.api.openTask(A.id); assert.match(d.querySelector('[data-act=parent-open]').textContent, /Make this a subtask of/);
+  click('[data-act=parent-open]'); typeIn(d.querySelector('#parentQ'), 'parent o');
+  assert.deepEqual([...d.querySelectorAll('#parentResults [data-act=parent-pick]')].map(x => x.querySelector('.truncate').textContent.trim()), ['Parent one']);
+  click('#parentResults [data-act=parent-pick]');
+  assert.match(d.querySelector('.parent-row').textContent, /Subtask of\s*Parent one/);
+  assert.equal(B.subitems.length, 0, 'nothing changes until the task is saved'); save();
+  assert.equal(A.parentId, B.id); assert.equal(B.subitems.length, 1); assert.equal(B.subitems[0].taskId, A.id); assert.equal(B.subitems[0].title, 'Child task');
+  assert.ok(A.log.some(l => /Made a subtask of "Parent one"/.test(l.text)));
+  // the parent's editor lists it as a linked subtask
+  a.api.openTask(B.id); const row = d.querySelector('[data-sub="0"]'); assert.ok(row && row.value === 'Child task' && row.readOnly, 'listed as a linked subtask'); click('[data-act=cancel-task]');
+  // a task's own subtask (or deeper) cannot become its parent: that would be a loop
+  a.api.openTask(A.id); click('[data-act=parent-open]'); typeIn(d.querySelector('#parentQ'), 'grandchild');
+  assert.equal(d.querySelectorAll('#parentResults [data-act=parent-pick]').length, 0, 'its own subtask is not offered');
+  // cancel throws the change away
+  typeIn(d.querySelector('#parentQ'), 'parent two'); click('#parentResults [data-act=parent-pick]'); click('[data-act=cancel-task]');
+  assert.equal(A.parentId, B.id); assert.equal(C.subitems.length, 0);
+  // change parent: the old parent loses it, the new one gains it
+  a.api.openTask(A.id); click('[data-act=parent-open]'); typeIn(d.querySelector('#parentQ'), 'parent two'); click('#parentResults [data-act=parent-pick]'); save();
+  assert.equal(A.parentId, C.id); assert.equal(B.subitems.length, 0); assert.equal(C.subitems.length, 1);
+  assert.ok(B.log.some(l => /no longer a subtask/.test(l.text)));
+  // make independent
+  a.api.openTask(A.id); click('[data-act=parent-rm]'); assert.match(d.querySelector('[data-act=parent-open]').textContent, /Make this a subtask of/); save();
+  assert.equal(A.parentId, null); assert.equal(C.subitems.length, 0);
+  // from the card's right-click menu
+  const card = d.querySelector(`.card[data-id="${B.id}"]`);
+  card.dispatchEvent(new a.w.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 40 }));
+  assert.match(d.querySelector('#ctxRoot').textContent, /Make a subtask of/);
+  ctxClick(a, 'ctx-parent'); assert.ok(d.querySelector('#parentQ'), 'the editor opens with the parent search ready');
+  typeIn(d.querySelector('#parentQ'), 'parent two'); click('#parentResults [data-act=parent-pick]'); save();
+  assert.equal(B.parentId, C.id); assert.equal(C.subitems[0].taskId, B.id);
+  // removing a linked subtask from its parent's own list releases the child
+  a.api.openTask(C.id); click('[data-act=sub-rm][data-i="0"]'); save();
+  assert.equal(B.parentId, null, 'child no longer says it belongs to the parent'); assert.equal(C.subitems.length, 0);
+  // a brand new task can pick its parent before it exists
+  click('[data-act=new-task]'); typeIn(d.querySelector('#mTitle'), 'Born a subtask');
+  click('[data-act=parent-open]'); typeIn(d.querySelector('#parentQ'), 'parent one'); click('#parentResults [data-act=parent-pick]'); save();
+  const born = S(a).tasks.find(t => t.title === 'Born a subtask');
+  assert.ok(born && born.parentId === B.id && B.subitems.some(s => s.taskId === born.id));
+  assert.deepEqual(a.errs, []); a.close();
+});

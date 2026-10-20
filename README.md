@@ -189,6 +189,7 @@ a column when the view is grouped by Importance. It replaces Low / Medium / High
   Reminder and Repeat move up under the dates once; you can reorder them in board settings, Fields.
 - **Dependencies both ways:** "Waits on" (this task cannot finish before those) and "Blocking" (those wait for this task).
   Both are editable; loops are refused. Changes to a task's blocking list are written to the other tasks when you save.
+- **Make an existing task a subtask:** open the task (or right-click its card → *Make a subtask of…*), press **Make this a subtask of…** under the title, search for the parent and pick it. It is added to the parent's subtask list when you save. **Change** picks a different parent and **Make independent** detaches it. A task can't be put under one of its own subtasks, and taking a linked subtask out of a parent's list releases it.
 - **Stick with parent:** once a subtask is made into a task, a "Stick with parent" box appears. A stuck task moves to the
   parent's stage and board whenever the parent moves (including Done and back). Moving a stuck task by itself takes it off the
   parent (it says so); automation leaves stuck tasks to their parent.
