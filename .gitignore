@@ -2,4 +2,7 @@ node_modules/
 www/
 dist/
 release/
-android/
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties

@@ -43,7 +43,7 @@
 *,*::before,*::after{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:14px;line-height:1.45;
-  padding-block:12px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-block:12px;padding-left:max(16px,max(env(safe-area-inset-left,0px),var(--safe-area-inset-left,0px)));padding-right:max(16px,max(env(safe-area-inset-right,0px),var(--safe-area-inset-right,0px)));
   overflow:hidden;-webkit-font-smoothing:antialiased}
 button{font:inherit;color:inherit;cursor:pointer;background:none;border:0;padding:0}
 input,select,textarea{font:inherit;color:inherit}
@@ -206,7 +206,7 @@ body.dragging,body.dragging *{cursor:grabbing!important}
 
 /* Modal */
 .m-back{position:fixed;inset:0;z-index:100;background:rgba(6,10,12,.52);display:flex;align-items:center;justify-content:center;
-  padding:calc(16px + env(safe-area-inset-top,0px)) max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px))}
+  padding:calc(16px + max(env(safe-area-inset-top,0px),var(--safe-area-inset-top,0px))) max(16px,max(env(safe-area-inset-right,0px),var(--safe-area-inset-right,0px))) calc(16px + max(env(safe-area-inset-bottom,0px),var(--safe-area-inset-bottom,0px))) max(16px,max(env(safe-area-inset-left,0px),var(--safe-area-inset-left,0px)))}
 .m-panel{width:min(940px,100%);max-height:100%;display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow-lg);overflow:hidden}
 .m-panel.narrow{width:min(520px,100%)}
 .m-panel.wide{width:min(760px,100%)}
@@ -258,7 +258,7 @@ code,.codebox{font-family:var(--font-mono);font-size:12px}
 .switch[aria-checked="true"]::after{transform:translateX(16px)}
 
 /* Toasts */
-#toasts{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:300;display:flex;flex-direction:column;gap:8px;align-items:center;width:min(460px,calc(100vw - 32px));pointer-events:none}
+#toasts{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + max(env(safe-area-inset-bottom,0px),var(--safe-area-inset-bottom,0px)));z-index:300;display:flex;flex-direction:column;gap:8px;align-items:center;width:min(460px,calc(100vw - 32px));pointer-events:none}
 .toast{pointer-events:auto;background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:12px;box-shadow:var(--shadow-lg);display:flex;align-items:center;gap:12px;font-size:13px;width:100%;animation:tin .18s ease-out}
 .toast button{color:var(--accent);font-weight:700;filter:brightness(1.25)}
 @keyframes tin{from{transform:translateY(8px);opacity:0}to{transform:none;opacity:1}}
@@ -271,7 +271,7 @@ code,.codebox{font-family:var(--font-mono);font-size:12px}
 }
 @media (max-width:767px){
   .only-mobile{display:inline-flex}
-  #side{position:fixed;z-index:70;top:calc(8px + env(safe-area-inset-top,0px));bottom:calc(8px + env(safe-area-inset-bottom,0px));left:calc(8px + env(safe-area-inset-left,0px));width:min(300px,86vw);transform:translateX(-120%);transition:transform .2s ease;background:var(--surface)!important}
+  #side{position:fixed;z-index:70;top:calc(8px + max(env(safe-area-inset-top,0px),var(--safe-area-inset-top,0px)));bottom:calc(8px + max(env(safe-area-inset-bottom,0px),var(--safe-area-inset-bottom,0px)));left:calc(8px + max(env(safe-area-inset-left,0px),var(--safe-area-inset-left,0px)));width:min(300px,86vw);transform:translateX(-120%);transition:transform .2s ease;background:var(--surface)!important}
   .side-open #side{transform:none}
   .side-open #scrim{display:block;position:fixed;inset:0;z-index:65;background:rgba(6,10,12,.45)}
   .side-edit{opacity:1}
@@ -288,7 +288,7 @@ code,.codebox{font-family:var(--font-mono);font-size:12px}
   .cal-chip.is-start{border-width:1px}
   .cal-more{font-size:10px}
   .cal-dow{padding:5px 2px;text-align:center;font-size:10px;letter-spacing:0}
-  .pop{left:8px!important;right:8px!important;top:auto!important;bottom:calc(8px + env(safe-area-inset-bottom,0px));width:auto;max-width:none}
+  .pop{left:8px!important;right:8px!important;top:auto!important;bottom:calc(8px + max(env(safe-area-inset-bottom,0px),var(--safe-area-inset-bottom,0px)));width:auto;max-width:none}
   .m-title{font-size:21px}
   .tb-title{font-size:19px}
 }

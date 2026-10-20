@@ -2,9 +2,19 @@
   "appId": "com.cursus.cos",
   "appName": "Cursus CoS",
   "webDir": "www",
-  "android": { "allowMixedContent": false },
+  "android": {
+    "allowMixedContent": false
+  },
   "plugins": {
-    "CapacitorHttp": { "enabled": true },
-    "LocalNotifications": { "smallIcon": "ic_stat_icon", "iconColor": "#6f95ff" }
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_icon",
+      "iconColor": "#6f95ff"
+    },
+    "SystemBars": {
+      "insetsHandling": "css"
+    }
   }
 }
