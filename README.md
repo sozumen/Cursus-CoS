@@ -346,3 +346,7 @@ Your data is never part of the app. It lives in the browser's storage (web), in 
 Cards in a column rank themselves: importance (1-10) and urgency (from the due date, overdue highest) count equally, so important and urgent tasks rise to the top. A card you drag into place keeps that slot (a small pin shows on it); the rest rank around it. Right-click a pinned card, **Let it rank automatically**, to release it. Each column has a sort button (arrow icon) that clears hand-placed cards in that column and ranks them all, with Undo. Turn the ranking off in Settings, Automation. It applies to the Manual sort only; choosing another sort order in the view still wins, and Done columns keep plain manual order.
 
 The pulse icon on a card (or **Mark in process** in its menu) highlights it with a slow pulse without moving it. It clears itself when the task is done.
+
+## Views
+
+A view is a saved combination of a layout (Kanban, List, Table or Calendar) and the boards and projects it shows. They sit at the top of the left bar: click one to switch to it, press + to save what you are looking at, and use the three-dot button on a row to rename, change or delete it. A view with no boards ticked shows every board; with no projects ticked it shows every project. Views are shared data, so they sync to your other devices like boards do.

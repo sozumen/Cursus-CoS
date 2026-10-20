@@ -1032,3 +1032,43 @@ test('ranking: important and urgent cards rise, a dropped card stays put, the co
   assert.ok(!d.querySelector('.in-proc'));
   assert.deepEqual(a.errs, []); a.close();
 });
+
+/* ---------- saved Views ---------- */
+test('Views: save the current layout and boards/projects, apply from the sidebar, edit, delete', { skip }, async () => {
+  const a = await launch(), { d, click, typeIn } = a, st = S(a);
+  const ops = st.boards.find(b => b.name === 'Operations'), launchB = st.boards.find(b => b.name === 'Product Launch'), proj = st.projects[0];
+  assert.match(d.querySelector('#side').textContent, /Views/);
+  // look at Operations as a list, then save that
+  click(`[data-act=board-only][data-id="${ops.id}"]`); click('[data-act=view][data-type=list]');
+  click('[data-act=sv-new]'); await tick(40);
+  assert.equal(d.querySelector('#svName').value, '');
+  click('[data-act=sv-save]'); assert.ok(d.querySelector('#svName'), 'a name is required');
+  typeIn(d.querySelector('#svName'), 'Ops list'); click('[data-act=sv-save]'); await tick(30);
+  assert.equal(st.savedViews.length, 1); const v = st.savedViews[0];
+  assert.equal(JSON.stringify(v.boards), JSON.stringify([ops.id])); assert.equal(v.type, 'list');
+  assert.match(d.querySelector('.side-view').textContent, /Ops list/);
+  assert.ok(d.querySelector('.side-view.on'), 'it is the one being looked at');
+  // go elsewhere (all boards, table), then come back with one click
+  click('[data-act=board-all]'); click('[data-act=view][data-type=table]');
+  assert.ok(!d.querySelector('.side-view.on'));
+  click('[data-act=sv-apply]'); await tick(30);
+  assert.equal(JSON.stringify([...a.api.state.settings.boardsSel]), JSON.stringify([ops.id])); assert.equal(a.api.state.settings.view, 'board');
+  assert.ok(d.querySelector('.lrow'), 'list layout shown'); assert.ok(d.querySelector('.side-view.on'));
+  // edit: a calendar of two boards and a project
+  click('[data-act=sv-edit]'); await tick(30);
+  click('[data-act=sv-type][data-v=calendar]'); click(`[data-act=sv-b][data-id="${launchB.id}"]`); click(`[data-act=sv-p][data-id="${proj.id}"]`);
+  typeIn(d.querySelector('#svName'), 'Calendar mix'); click('[data-act=sv-save]'); await tick(30);
+  assert.equal(st.savedViews.length, 1); assert.equal(st.savedViews[0].type, 'calendar'); assert.equal(JSON.stringify(st.savedViews[0].projects), JSON.stringify([proj.id])); assert.equal(st.savedViews[0].boards.length, 2);
+  click('[data-act=sv-apply]'); await tick(30);
+  assert.ok(d.querySelector('.cal-day'), 'calendar layout'); assert.equal(JSON.stringify(a.api.state.settings.filters.projects), JSON.stringify([proj.id]));
+  assert.equal(a.api.state.settings.boardsSel.length, 2);
+  // deleting a board it uses does not break it
+  st.boards = st.boards.filter(b => b.id !== launchB.id); a.api.render();
+  click('[data-act=sv-apply]'); await tick(30);
+  assert.equal(JSON.stringify([...a.api.state.settings.boardsSel]), JSON.stringify([ops.id]));
+  // delete
+  click('[data-act=sv-edit]'); await tick(30); click('[data-act=sv-del]'); await tick(30);
+  click([...d.querySelectorAll('#confirmRoot button')].find(b => /Delete view/.test(b.textContent))); await tick(40);
+  assert.equal(st.savedViews.length, 0); assert.ok(st.tombstones.some(t => t.kind === 'savedView'));
+  assert.equal(JSON.stringify(a.errs), JSON.stringify([])); a.close();
+});

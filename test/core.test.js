@@ -374,3 +374,19 @@ test('rank: damaged pin / inProcess values are repaired', () => {
   const d = core.normalize({ tasks: [{ id: 'x', title: 'x', boardId: 'b', pin: 'top', inProcess: 'yes' }], boards: [{ id: 'b', name: 'b' }] });
   assert.equal(d.tasks[0].pin, null); assert.equal(d.tasks[0].inProcess, false);
 });
+
+/* ---------- saved views ---------- */
+test('saved views: cleaned on load, travel through sync, deletions carry over', () => {
+  const d = core.normalize({ boards: [{ id: 'b', name: 'b' }], tasks: [], savedViews: [{ id: 'v1', name: 'A', type: 'nope', boards: 'x', projects: [1, 'p'] }, 'junk', { name: 'no id' }] });
+  assert.equal(d.savedViews.length, 2); assert.equal(d.savedViews[0].type, 'kanban'); assert.deepEqual(d.savedViews[0].boards, []); assert.deepEqual(d.savedViews[0].projects, ['p']);
+  const mk = (id, name, updated) => core.normSavedView({ id, name, type: 'list', boards: [], projects: [], updated });
+  const S1 = { meta: { deviceId: 'a' }, boards: [], projects: [], tasks: [], tombstones: [], savedViews: [mk('v1', 'Mine', '2026-01-01T00:00:00Z')] };
+  const S2 = { meta: { deviceId: 'b' }, boards: [], projects: [], tasks: [], tombstones: [], savedViews: [mk('v2', 'Theirs', '2026-01-02T00:00:00Z')] };
+  const m = core.mergeData(core.extractData(S1), core.extractData(S2));
+  assert.deepEqual(m.savedViews.map(v => v.name).sort(), ['Mine', 'Theirs']);
+  assert.notEqual(core.signature(m), core.signature(core.extractData(S1)));
+  const del = core.mergeData(m, { boards: [], projects: [], tasks: [], savedViews: [], tombstones: [{ kind: 'savedView', id: 'v1', updated: '2026-02-01T00:00:00Z' }] });
+  assert.deepEqual(del.savedViews.map(v => v.id), ['v2']);
+  const older = core.mergeData(core.extractData(S1), { boards: [], projects: [], tasks: [] });   // a device from before saved views
+  assert.equal(older.savedViews.length, 1);
+});

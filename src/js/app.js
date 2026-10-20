@@ -4,7 +4,7 @@
 'use strict';
 
 const CoS = window.CoS, Host = CoS.host, Tools = CoS.tools;
-const { COLS, COL, nextOccurrence, nextDates, normRepeat, repeatLabel, isStuckChild, IMP_BAND, bandOf, clampImp, impColor, impMatch, setImp, STAGE_COLORS, MAX_STAGES, stageKey, isDoneTask, doneIdOf, mapStatus, defaultStages, PRI, FLAGS, uid, nowISO, clone, pad, fmtISO, parseD, todayStr, addDays, diffDays, trackStages, staleSuggestions, rankOrder, rankScore, urgencyOf, daysInStage, hashId, newBoard, newView, BUILTIN_FIELDS, FIELD_TYPES, newTask, logTask, isBlocked, dueState, autoMove, autoArchive, reconcileDone, fireTime, parseEst, fmtEst, emptyFilters, normalize, fixRefs, resetHashes, stampChanges, extractData, isSyncPayload, mergeData, signature, seed } = CoS.core;
+const { COLS, COL, nextOccurrence, nextDates, normRepeat, repeatLabel, isStuckChild, IMP_BAND, bandOf, clampImp, impColor, impMatch, setImp, STAGE_COLORS, MAX_STAGES, stageKey, isDoneTask, doneIdOf, mapStatus, defaultStages, PRI, FLAGS, uid, nowISO, clone, pad, fmtISO, parseD, todayStr, addDays, diffDays, trackStages, staleSuggestions, rankOrder, rankScore, urgencyOf, normSavedView, daysInStage, hashId, newBoard, newView, BUILTIN_FIELDS, FIELD_TYPES, newTask, logTask, isBlocked, dueState, autoMove, autoArchive, reconcileDone, fireTime, parseEst, fmtEst, emptyFilters, normalize, fixRefs, resetHashes, stampChanges, extractData, isSyncPayload, mergeData, signature, seed } = CoS.core;
 
 /* ---------- small helpers ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -69,6 +69,12 @@ function replaceAll(next, { keepSettings = true } = {}){
   const now = nowISO(), tombs = [];
   for (const [k, c] of COLLS) for (const r of S[c]) if (!keep.has(k + ':' + r.id)) tombs.push({ kind:k, id:r.id, updated:now });
   for (const [, c] of COLLS) for (const r of next[c]) r.updated = now;
+  if (Array.isArray(next.savedViews)){
+    const kv = new Set(next.savedViews.map(v => v.id)), nw = nowISO();
+    for (const v of S.savedViews || []) if (!kv.has(v.id)) tombs.push({ kind:'savedView', id:v.id, updated:nw });
+    next.savedViews.forEach(v => { v.updated = nw; keep.add('savedView:' + v.id); });
+    S.savedViews = next.savedViews;
+  }
   S.boards = next.boards; S.projects = next.projects; S.tasks = next.tasks; S.sample = !!next.sample;
   S.tombstones = S.tombstones.filter(t => !keep.has(t.kind + ':' + t.id)).concat(tombs);
   if (!keepSettings && next.settings) S.settings = next.settings;
@@ -106,7 +112,7 @@ function scheduleSync(delay = 2500){
 }
 function applyMerged(m){
   const before = new Map(S.settings.subscribed.map(id => [id, (T(id) || {}).updated]));
-  S.boards = m.boards; S.projects = m.projects; S.tasks = m.tasks.map(newTask); S.tombstones = m.tombstones; S.sample = false;
+  S.boards = m.boards; S.projects = m.projects; S.savedViews = m.savedViews || S.savedViews || []; S.tasks = m.tasks.map(newTask); S.tombstones = m.tombstones; S.sample = false;
   fixRefs(S); resetHashes(S, hashes); persistMeta(); pushReminders(); render();
   const changed = S.settings.subscribed.map(T).filter(t => t && before.has(t.id) && before.get(t.id) !== t.updated);
   if (changed.length){
@@ -608,6 +614,8 @@ function renderSidebar(){
       <span class="brand">Cursus CoS</span>
     </div>
     <div class="side-scroll">
+      <div class="side-h"><span>Views</span><button class="btn btn-ghost btn-sm btn-icon" data-act="sv-new" aria-label="Save a view" title="Save a view: a layout plus the boards and projects to show">${ic('plus')}</button></div>
+      ${viewsSideHTML()}
       <div class="side-h"><span>Boards</span><button class="btn btn-ghost btn-sm btn-icon" data-act="board-new" aria-label="New board">${ic('plus')}</button></div>
       <button class="side-row ${allOn ? 'on' : ''}" data-act="board-all">${ic('layers', 'w-4 h-4')}<span class="flex-1" style="flex:1">All boards</span><span class="count">${S.tasks.filter(t => !isDone(t) && !t.archived).length}</span></button>
       ${boardsHTML}
@@ -1103,6 +1111,7 @@ function renderModal(){
   if (ui.modal.type === 'task') root.innerHTML = modalHTML();
   else if (ui.modal.type === 'settings') root.innerHTML = settingsHTML();
   else if (ui.modal.type === 'entity') root.innerHTML = entityHTML();
+  else if (ui.modal.type === 'sview') root.innerHTML = savedViewHTML();
   else if (ui.modal.type === 'import') root.innerHTML = importHTML();
   else if (ui.modal.type === 'bset') root.innerHTML = bsetHTML();
   else if (ui.modal.type === 'ptags') root.innerHTML = ptagsHTML();
@@ -1255,6 +1264,61 @@ function createFollowUp(srcId, name, date, time){
 
 /* ---------- entity (board / project) modal ---------- */
 const HUES = [205, 230, 262, 300, 330, 4, 28, 48, 100, 150, 175];
+/* ---------- saved Views: a layout plus the boards and projects it shows ---------- */
+const SV_ICON = { kanban:'layout-dashboard', list:'list', table:'table', calendar:'calendar' };
+const svBoards = v => { const have = new Set(S.boards.map(b => b.id)), b = v.boards.filter(i => have.has(i)); return b.length ? b : S.boards.map(x => x.id); };
+const svProjects = v => v.projects.filter(i => S.projects.some(p => p.id === i));
+const sameSet = (a, b) => a.length === b.length && a.every(x => b.includes(x));
+function svActive(v){
+  return !S.settings.filters.archived && activeView().type === v.type && sameSet([...selIds()], svBoards(v)) && sameSet(S.settings.filters.projects, svProjects(v));
+}
+function svCount(v){
+  const bs = new Set(svBoards(v)), ps = svProjects(v);
+  return S.tasks.filter(t => bs.has(t.boardId) && !isDone(t) && !t.archived && (!ps.length || ps.includes(t.projectId))).length;
+}
+function viewsSideHTML(){
+  const list = S.savedViews || [];
+  if (!list.length) return `<p class="note" style="padding:4px 8px">A view remembers a layout and which boards and projects to show. Press + to save one.</p>`;
+  return list.map(v => `<div class="side-row side-view ${svActive(v) ? 'on' : ''}">
+          <button class="side-name" data-act="sv-apply" data-id="${v.id}" aria-pressed="${svActive(v)}" title="${esc(VLABEL[v.type])} view"><span style="color:${hsl(v.h, 60, 45)};display:inline-flex">${ic(SV_ICON[v.type] || 'layout-dashboard', 'w-4 h-4')}</span><span class="truncate">${esc(v.name)}</span></button>
+          <span class="count">${svCount(v)}</span>
+          <button class="side-edit" data-act="sv-edit" data-id="${v.id}" aria-label="Edit ${esc(v.name)}">${ic('more-horizontal')}</button>
+        </div>`).join('');
+}
+function applySavedView(id){
+  const v = (S.savedViews || []).find(x => x.id === id); if (!v) return;
+  S.settings.boardsSel = svBoards(v);
+  S.settings.filters.projects = svProjects(v);
+  S.settings.filters.archived = false;
+  const b = mainBoard();
+  let lv = b.views.find(x => x.id === S.settings.viewSel[b.id] && x.type === v.type) || b.views.find(x => x.id === b.defaultView && x.type === v.type) || b.views.find(x => x.type === v.type);
+  if (!lv){ lv = newView(v.type, null); b.views.push(lv); }
+  S.settings.viewSel[b.id] = lv.id; S.settings.view = v.type === 'kanban' || v.type === 'list' ? 'board' : v.type;
+  ui.sideOpen = false; ui.pop = null; save(); render();
+}
+function openSavedView(id){
+  const ex = id ? (S.savedViews || []).find(x => x.id === id) : null;
+  const allB = S.boards.length === selIds().size;
+  ui.modal = { type:'sview', id: id || '', name: ex ? ex.name : '', vtype: ex ? ex.type : activeView().type,
+    boards: ex ? ex.boards.slice() : (allB ? [] : [...selIds()]), projects: ex ? ex.projects.slice() : S.settings.filters.projects.slice(), h: ex ? ex.h : HUES[(S.savedViews || []).length % HUES.length] };
+  renderModal(); setTimeout(() => { const i = $('#svName'); if (i) i.focus(); }, 30);
+}
+function savedViewHTML(){
+  const m = ui.modal;
+  const tog = (act, id, label, on, dot) => `<button type="button" class="tog" data-act="${act}" data-id="${esc(id)}" aria-pressed="${on}"><span class="chk" style="${on ? 'background:var(--accent);border-color:var(--accent);color:var(--accent-ink)' : ''}">${on ? ic('check', 'w-3 h-3') : ''}</span>${dot ? `<span class="dot" style="background:${dot}"></span>` : ''}<span class="truncate">${esc(label)}</span></button>`;
+  return `<div class="m-back"><div class="m-panel narrow" role="dialog" aria-modal="true" aria-label="${m.id ? 'Edit view' : 'New view'}"><div class="m-head"><h2 class="font-display" style="font-weight:700;font-size:18px;flex:1">${m.id ? 'Edit view' : 'Save a view'}</h2><button class="btn btn-ghost btn-icon" data-act="close-modal" aria-label="Close">${ic('x')}</button></div>
+    <div class="m-body single"><label class="lbl" for="svName">Name</label><input id="svName" class="inp" value="${esc(m.name)}" maxlength="40" placeholder="e.g. Launch board, This week">
+      <span class="lbl" style="margin-top:14px">Layout</span>
+      <div class="flex flex-wrap gap-2" role="group" aria-label="Layout">${['kanban', 'list', 'table', 'calendar'].map(t => `<button type="button" class="btn btn-sm ${m.vtype === t ? 'btn-primary' : ''}" data-act="sv-type" data-v="${t}" aria-pressed="${m.vtype === t}">${ic(SV_ICON[t], 'w-3.5 h-3.5')}${VLABEL[t]}</button>`).join('')}</div>
+      <span class="lbl" style="margin-top:14px">Boards</span>
+      <div class="flex flex-col" style="gap:2px">${S.boards.map(b => tog('sv-b', b.id, b.name, m.boards.includes(b.id), hsl(b.h, 65, 52))).join('')}</div>
+      <p class="note" style="margin-top:4px">Tick none to show every board.</p>
+      ${S.projects.length ? `<span class="lbl" style="margin-top:14px">Projects</span><div class="flex flex-col" style="gap:2px">${S.projects.map(p => tog('sv-p', p.id, p.name, m.projects.includes(p.id), hsl(p.h, 60, 52))).join('')}</div><p class="note" style="margin-top:4px">Tick none to show tasks from every project.</p>` : ''}
+      <span class="lbl" style="margin-top:14px">Color</span><div class="flex flex-wrap gap-2">${HUES.map(h => `<button type="button" class="swatch" data-act="sv-hue" data-h="${h}" aria-pressed="${m.h === h}" aria-label="Hue ${h}" style="background:${hsl(h, 65, 52)}"></button>`).join('')}</div>
+      ${m.id ? `<button type="button" class="btn btn-sm" style="margin-top:14px" data-act="sv-current">${ic('crosshair', 'w-3.5 h-3.5')}Use what I'm looking at now</button>` : ''}</div>
+    <div class="m-foot">${m.id ? `<button class="btn btn-danger" data-act="sv-del">${ic('trash-2')}Delete</button>` : ''}<span style="flex:1"></span><button class="btn" data-act="close-modal">Cancel</button><button class="btn btn-primary" data-act="sv-save">${m.id ? 'Save' : 'Save view'}</button></div></div></div>`;
+}
+
 function openEntity(kind, id){
   const ex = id ? (kind === 'board' ? boardOf(id) : projOf(id)) : null;
   ui.modal = { type:'entity', kind, id, name: ex ? ex.name : '', h: ex ? ex.h : HUES[(kind === 'board' ? S.boards.length : S.projects.length) % HUES.length] };
@@ -2283,6 +2347,29 @@ const ACTIONS = {
   'board-new'(){ openEntity('board'); },
   'board-edit'(el){ openBoardSettings(el.dataset.id); },
   'board-colors'(){ openBoardSettings(primaryBoard(), 'colors'); },
+  'sv-new'(){ openSavedView(''); },
+  'sv-edit'(el){ openSavedView(el.dataset.id); },
+  'sv-apply'(el){ applySavedView(el.dataset.id); },
+  'sv-type'(el){ ui.modal.name = ($('#svName') || {}).value || ui.modal.name; ui.modal.vtype = el.dataset.v; renderModal(); },
+  'sv-hue'(el){ ui.modal.name = ($('#svName') || {}).value || ui.modal.name; ui.modal.h = +el.dataset.h; renderModal(); },
+  'sv-b'(el){ const m = ui.modal, i = m.boards.indexOf(el.dataset.id); m.name = ($('#svName') || {}).value || m.name; if (i >= 0) m.boards.splice(i, 1); else m.boards.push(el.dataset.id); renderModal(); },
+  'sv-p'(el){ const m = ui.modal, i = m.projects.indexOf(el.dataset.id); m.name = ($('#svName') || {}).value || m.name; if (i >= 0) m.projects.splice(i, 1); else m.projects.push(el.dataset.id); renderModal(); },
+  'sv-current'(){ const m = ui.modal; m.name = ($('#svName') || {}).value || m.name; m.vtype = activeView().type; m.boards = S.boards.length === selIds().size ? [] : [...selIds()]; m.projects = S.settings.filters.projects.slice(); renderModal(); },
+  'sv-save'(){
+    const m = ui.modal, name = (($('#svName') || {}).value || '').trim(); if (!name){ toast('Give the view a name first.'); return; }
+    S.savedViews = S.savedViews || [];
+    const rec = normSavedView({ id: m.id || uid(), name, type: m.vtype, boards: m.boards.filter(i => boardOf(i)), projects: m.projects.filter(i => projOf(i)), h: m.h });
+    const i = S.savedViews.findIndex(x => x.id === rec.id);
+    if (i >= 0) S.savedViews[i] = rec; else S.savedViews.push(rec);
+    save(); closeModal(); render();
+    toast(`Saved the view "${name}".`, null, 2500);
+  },
+  async 'sv-del'(){
+    const m = ui.modal, v = (S.savedViews || []).find(x => x.id === m.id); if (!v) return;
+    if (!await confirmBox({ title:`Delete the view "${v.name}"?`, body:'Your boards, projects and tasks are not touched.', ok:'Delete view', danger:true })) return;
+    S.savedViews = S.savedViews.filter(x => x.id !== v.id); tombstone('savedView', v.id);
+    save(); closeModal(); render();
+  },
   'proj-new'(){ openEntity('project'); },
   'proj-edit'(el){ openEntity('project', el.dataset.id); },
   'proj-filter'(el){ ACTIONS['f-toggle']({ dataset:{ k:'projects', v:el.dataset.id } }); },
@@ -2635,6 +2722,7 @@ document.addEventListener('keydown', e => {
     }
     if (ui.modal && ui.modal.type === 'followup' && tgt.id === 'fuName'){ e.preventDefault(); ACTIONS['fu-save'](); return; }
     if (ui.modal && ui.modal.type === 'entity' && tgt.id === 'entName'){ e.preventDefault(); ACTIONS['ent-save'](); return; }
+    if (ui.modal && ui.modal.type === 'sview' && tgt.id === 'svName'){ e.preventDefault(); ACTIONS['sv-save'](); return; }
     if (ui.modal && ui.modal.type === 'ptags' && tgt.id === 'ptIn'){ e.preventDefault(); const v = tgt.value.trim().toLowerCase(); if (v && !ui.modal.tags.includes(v)){ ui.modal.tags.push(v); renderModal(); const i = $('#ptIn'); if (i) i.focus(); } return; }
     if (ui.modal && ui.modal.type === 'bset' && tgt.id === 'stNew'){ e.preventDefault(); ACTIONS['st-add'](); return; }
     if (ui.modal && ui.modal.type === 'bset' && (tgt.id === 'memName' || tgt.id === 'memEmail')){ e.preventDefault(); ACTIONS['mem-add'](); return; }

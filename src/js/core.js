@@ -452,6 +452,7 @@
       return b;
     });
     d.projects = cleanRecords(d.projects).map(p => Object.assign({ updated: nowISO() }, p));
+    d.savedViews = cleanRecords(d.savedViews).map(normSavedView);
     const TASK_SHAPE = newTask({});
     const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
     d.tasks = cleanRecords(d.tasks).map(t => {
@@ -487,11 +488,19 @@
     return fixRefs(d);
   }
 
+  /* A saved View is a layout (kanban / list / table / calendar) plus the boards and projects it shows. It is shared data,
+     so it syncs and follows you to every device. Empty `boards` means every board; empty `projects` means no project filter. */
+  function normSavedView(v){
+    const strs = a => asArr(a).filter(x => typeof x === 'string' && x);
+    return { id: v.id, name: String(v.name == null ? '' : v.name).slice(0, 40) || 'View', type: VIEW_TYPES.includes(v.type) ? v.type : 'kanban',
+      boards: strs(v.boards), projects: strs(v.projects), h: typeof v.h === 'number' && isFinite(v.h) ? v.h : 210, updated: v.updated || nowISO() };
+  }
+
   /* ---------- change stamping ----------
      Rather than remembering to touch `updated` at every mutation, the store compares each record with a
      hash taken the last time it was saved and stamps `updated` on anything that changed. */
   const recHash = r => { const c = Object.assign({}, r); delete c.updated; return JSON.stringify(c); };
-  const COLLECTIONS = [['board', 'boards'], ['project', 'projects'], ['task', 'tasks']];
+  const COLLECTIONS = [['board', 'boards'], ['project', 'projects'], ['task', 'tasks'], ['savedView', 'savedViews']];
   function resetHashes(S, hashes){
     for (const k of Object.keys(hashes)) delete hashes[k];
     for (const [kind, coll] of COLLECTIONS) for (const r of S[coll]) hashes[kind + ':' + r.id] = recHash(r);
@@ -507,7 +516,7 @@
 
   /* ---------- sync merge (last write wins per record, with tombstones for deletes) ---------- */
   function extractData(S){
-    return { app: APP, schema: SCHEMA, deviceId: S.meta.deviceId, exportedAt: nowISO(), boards: S.boards, projects: S.projects, tasks: S.tasks, tombstones: S.tombstones };
+    return { app: APP, schema: SCHEMA, deviceId: S.meta.deviceId, exportedAt: nowISO(), boards: S.boards, projects: S.projects, tasks: S.tasks, savedViews: S.savedViews || [], tombstones: S.tombstones };
   }
   const isSyncPayload = d => !!d && Array.isArray(d.boards) && Array.isArray(d.projects) && Array.isArray(d.tasks) && (d.app === undefined || d.app === APP || LEGACY_APPS.includes(d.app));
   const ts = r => Date.parse(r && r.updated) || 0;
@@ -535,7 +544,7 @@
   }
   function signature(d){
     const part = c => (d[c] || []).map(r => r.id + '@' + (r.updated || '')).sort().join(',');
-    return [part('boards'), part('projects'), part('tasks'), (d.tombstones || []).map(t => t.kind + ':' + t.id + '@' + t.updated).sort().join(',')].join('|');
+    return [part('boards'), part('projects'), part('tasks'), part('savedViews'), (d.tombstones || []).map(t => t.kind + ':' + t.id + '@' + t.updated).sort().join(',')].join('|');
   }
 
   /* ---------- sample data ---------- */
@@ -587,7 +596,7 @@
     SCHEMA, APP, COLS, COL, STAGE_COLORS, MAX_STAGES, stageKey, defaultStages, normalizeStages, doneIdOf, isDoneTask, mapStatus, PRI, IMP_BAND, bandOf, clampImp, impOf, REPEAT_UNITS, addInterval, normRepeat, repeatLabel, nextDates, nextOccurrence, isStuckChild, impColor, impMatch, syncImp, setImp, FLAGS, VIEW_TYPES, BUILTIN_FIELDS, FIELD_TYPES,
     uid, nowISO, clone, pad, fmtISO, parseD, todayStr, addDays, diffDays, merge, hashId,
     newBoard, normalizeBoard, newView, defaultViews, newTask, logTask, isBlocked, dueState, autoMove, reconcileDone, autoArchive, fireTime, parseEst, fmtEst,
-    STALE_DEFAULT, normStale, daysInStage, trackStages, staleSuggestions, urgencyOf, rankScore, rankOrder, emptyFilters, DEFAULTS, SYNC_DEFAULTS, normalize, fixRefs, recHash, resetHashes, stampChanges,
+    STALE_DEFAULT, normStale, daysInStage, trackStages, staleSuggestions, urgencyOf, rankScore, rankOrder, emptyFilters, DEFAULTS, SYNC_DEFAULTS, normSavedView, normalize, fixRefs, recHash, resetHashes, stampChanges,
     extractData, isSyncPayload, mergeData, signature, seed
   };
 });
