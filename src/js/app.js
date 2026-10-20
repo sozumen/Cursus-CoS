@@ -122,7 +122,7 @@ async function syncNow(manual){
   if (dirty){ reconcileDone(S.tasks, undefined, S.boards); trackStages(S.tasks); stampChanges(S, hashes, nowISO()); }   // edits still waiting for the save debounce must be stamped before merging
   if (c.mode === 'onedrive'){
     const st = await OD.status();
-    if (!st.signedIn){ c.error = ''; ui.od.status = st; if (await odRenew()) return; if (manual) toast('Sign in to OneDrive first.'); renderSyncStatus(); return; }
+    if (!st.signedIn){ c.error = st.error || ''; ui.od.status = st; if (st.error) ui.od.msg = st.error; if (await odRenew()) return; if (manual) toast(st.error ? 'Sign in to OneDrive again. ' + st.error : 'Sign in to OneDrive first.', null, st.error ? 9000 : undefined); renderModal(); renderSyncStatus(); return; }
   }
   syncState.running = true; c.error = ''; renderSyncStatus();
   try{
@@ -156,7 +156,7 @@ function syncLabel(){
   const c = S.meta.sync;
   if (c.mode === 'off') return '';
   if (S.sample) return 'Paused: this is still the sample data. Clear it in Settings, Data, then sync.';
-  if (c.mode === 'onedrive' && ui.od.status && !ui.od.status.signedIn) return 'Sign in to OneDrive in Settings, Sync';
+  if (c.mode === 'onedrive' && ui.od.status && !ui.od.status.signedIn) return 'Sign in to OneDrive in Settings, Sync' + (c.error ? ' (' + c.error + ')' : '');
   if (syncState.running) return 'Syncing…';
   if (c.error) return 'Sync problem: ' + c.error;
   return c.last ? 'Synced ' + timeAgo(c.last) : 'Not synced yet';

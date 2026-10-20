@@ -40,7 +40,7 @@
     const sleep = ms => (deps.sleep ? deps.sleep(ms) : new Promise(r => setTimeout(r, ms)));
     const setT = (f, ms) => (deps.setTimeout ? deps.setTimeout(f, ms) : setTimeout(f, ms)), clearT = id => (deps.clearTimeout ? deps.clearTimeout(id) : clearTimeout(id));
     let tok = undefined;          // undefined = not loaded yet, null = signed out
-    let refreshing = null, flow = null, cache = null;
+    let refreshing = null, flow = null, cache = null, lastErr = '';   // lastErr: why the sign-in was dropped, shown instead of a bare "sign in"
 
     /* ---------- token storage ---------- */
     async function load(){
@@ -48,7 +48,7 @@
       try{ const raw = await deps.kv.get(KEY); tok = raw ? JSON.parse(raw) : null; }catch(e){ tok = null; }
       return tok;
     }
-    async function store(t){ tok = t; try{ if (t) await deps.kv.set(KEY, JSON.stringify(t)); else await deps.kv.remove(KEY); }catch(e){} }
+    async function store(t){ if (t) lastErr = ''; tok = t; try{ if (t) await deps.kv.set(KEY, JSON.stringify(t)); else await deps.kv.remove(KEY); }catch(e){} }
 
     function oauthError(r){
       const j = parse(r.text), e = new Error(j.error_description ? String(j.error_description).split(/\r?\n/)[0] : `Microsoft answered ${r.status}`);
@@ -165,13 +165,13 @@
       const t = await load();
       if (!t || !t.refresh && !t.access){ const e = new Error('Not signed in to OneDrive. Open Settings, Sync to sign in.'); e.auth = true; throw e; }
       if (!force && t.access && now() < t.exp - 60000) return t.access;
-      if (!t.refresh){ await store(null); const e = new Error('Your Microsoft sign-in ended. Sign in again.'); e.auth = true; throw e; }
+      if (!t.refresh){ lastErr = 'Microsoft did not give this app a renewal token (no refresh token was issued).'; await store(null); const e = new Error('Your Microsoft sign-in ended: ' + lastErr + ' Sign in again.'); e.auth = true; throw e; }
       if (!refreshing){
         refreshing = (async () => {
           const r = await post(AUTH + '/token', { grant_type: 'refresh_token', client_id: t.clientId, refresh_token: t.refresh, scope: SCOPE });
           if (r.status !== 200){
             const e = oauthError(r);
-            if (e.code === 'invalid_grant' || e.code === 'interaction_required' || e.code === 'invalid_client'){ await store(null); e.message = 'Your Microsoft sign-in ended. Sign in again.'; e.auth = true; }
+            if (e.code === 'invalid_grant' || e.code === 'interaction_required' || e.code === 'invalid_client'){ lastErr = (e.code + ': ' + e.message).slice(0, 300); await store(null); e.message = 'Your Microsoft sign-in ended (' + lastErr + '). Sign in again.'; e.auth = true; }
             throw e;
           }
           const j = parse(r.text);
@@ -277,7 +277,7 @@
 
     async function status(){
       const t = await load();
-      return { signedIn: !!t, name: (t && t.name) || '', clientId: (t && t.clientId) || '', live: live.on, liveError: live.error };
+      return { signedIn: !!t, error: t ? '' : lastErr, name: (t && t.name) || '', clientId: (t && t.clientId) || '', live: live.on, liveError: live.error };
     }
 
     return { signIn, beginRedirect, completeRedirect, canRenewSilently, cancel, signOut, adapter, watch, unwatch, status, accessToken, _live: live, _deps: deps };

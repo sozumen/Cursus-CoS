@@ -23,7 +23,7 @@ test('sign in: shows a code, waits through pending and slow_down, stores tokens,
   assert.equal(shown.userCode, 'ABCD1234'); assert.match(shown.uri, /microsoft\.com\/link/);
   assert.equal(r.name, 'pat@example.com');
   const saved = JSON.parse(store['cos.msauth']); assert.equal(saved.refresh, 'ref1'); assert.equal(saved.clientId, CLIENT);
-  assert.deepEqual(await od.status(), { signedIn: true, name: 'pat@example.com', clientId: CLIENT, live: false, liveError: '' });
+  assert.deepEqual(await od.status(), { signedIn: true, name: 'pat@example.com', clientId: CLIENT, error: '', live: false, liveError: '' });
 });
 
 test('sign in: rejects a malformed client id, an expired code, a cancel, and a decline', async () => {
@@ -54,7 +54,7 @@ test('tokens: refreshes when expired, rotates the refresh token, retries a 401 o
   assert.ok(ms.log.filter(l => /oauth2/.test(l) && /token/.test(l)).length >= 3);
   ms.revoked = true; clock.t += 3600 * 1000;
   await assert.rejects(od.accessToken(), e => e.auth && /Sign in again/.test(e.message));
-  assert.equal(store['cos.msauth'], undefined); assert.equal((await od.status()).signedIn, false);
+  assert.equal(store['cos.msauth'], undefined); const st = await od.status(); assert.equal(st.signedIn, false); assert.match(st.error, /invalid_grant|revoked|expired/i, 'the reason is kept');
 });
 
 test('adapter: first push creates the file, pull skips the download while the eTag is unchanged, a stale push is a conflict', async () => {
