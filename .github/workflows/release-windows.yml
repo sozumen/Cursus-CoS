@@ -45,10 +45,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag v1.0.${{ github.run_number }}
           git push origin v1.0.${{ github.run_number }}
-      # Create the release once, here. (If electron-builder creates it, its parallel uploads race and make duplicate releases.)
+      # Create the release once, here, as a DRAFT: nobody (including installed apps checking for updates) can see it until every file is uploaded.
+      # (If electron-builder creates it, its parallel uploads race and make duplicate releases.)
       - name: Create release
         shell: bash
-        run: gh release create v1.0.${{ github.run_number }} --title "Cursus CoS 1.0.${{ github.run_number }}" --notes "Windows installer for Cursus CoS. Installed copies update themselves; your data is kept." --verify-tag
+        run: gh release create v1.0.${{ github.run_number }} --draft --title "Cursus CoS 1.0.${{ github.run_number }}" --notes "Windows installer for Cursus CoS. Installed copies update themselves; your data is kept." --verify-tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: node scripts/build.mjs
@@ -65,5 +66,11 @@ jobs:
             echo "::error title=electron-builder failed (exit $code)::$msg"
             exit $code
           fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Only now, with the installer, blockmap and latest.yml all uploaded, make the release public
+      - name: Publish release
+        shell: bash
+        run: gh release edit v1.0.${{ github.run_number }} --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
