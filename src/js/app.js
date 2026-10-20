@@ -433,6 +433,16 @@ function reviewKeep(id){
   const t = T(id); if (!t || !t.review) return;
   endReview(t); t.stageAt = nowISO(); logTask(t, `Kept in ${stageNameOf(t, t.status)} after review; the clock starts again`); t.updated = nowISO();
 }
+/* "Something else" for a task in review: move it to any stage of its board, mark it complete, archive it or delete it. */
+function reviewOther(id, how){
+  const t = T(id); if (!t || !t.review) return;
+  const title = t.title;
+  endReview(t);
+  if (how === 'delete'){ deleteTask(id); return; }
+  if (how === 'archive'){ archiveTasks([id], true, 'Archived from the review'); toast(`Archived "${title}".`, { label:'Undo', fn:() => { archiveTasks([id], false); render(); } }, 5000); return; }
+  if (how === 'done'){ const dn = doneIdFor(t.boardId); t.prevStatus = t.status; moveTask(id, dn, topOrder(dn), true); return; }
+  if (how.startsWith('stage:')){ const to = how.slice(6); if (to !== t.status && stagesOf(t.boardId).some(x => x.id === to)) moveTask(id, to, topOrder(to), true); }
+}
 function afterReview(){
   save(); render();
   if (!pendingReviews().length){ closeModal(); toast('All reviewed.', null, 2500); } else renderModal();
@@ -441,7 +451,10 @@ function reviewHTML(){
   const list = pendingReviews(), today = todayStr();
   const rows = list.map(t => { const r = t.review, to = stageNameOf(t, r.to), from = stageNameOf(t, t.status), n = daysInStage(t, today);
     return `<div class="field-row" style="align-items:flex-start;gap:12px"><span style="min-width:0;flex:1"><b style="font-weight:600;display:block;overflow-wrap:anywhere">${esc(t.title)}</b><span class="note">${esc(boardName(t.boardId))} · in ${esc(from)} for ${n} day${n === 1 ? '' : 's'}</span></span>
-      <span class="flex gap-1" style="flex-shrink:0;flex-wrap:wrap;justify-content:flex-end"><button class="btn btn-sm btn-primary" data-act="rv-move" data-id="${t.id}">Move to ${esc(to)}</button><button class="btn btn-sm" data-act="rv-keep" data-id="${t.id}">Keep in ${esc(from)}</button></span></div>`; }).join('');
+      <span class="flex gap-1" style="flex-shrink:0;flex-wrap:wrap;justify-content:flex-end"><button class="btn btn-sm btn-primary" data-act="rv-move" data-id="${t.id}">Move to ${esc(to)}</button><button class="btn btn-sm" data-act="rv-keep" data-id="${t.id}">Keep in ${esc(from)}</button>
+        <select class="inp" style="width:auto;height:32px;padding:0 8px;font-size:13px" data-rv-more="${t.id}" aria-label="Something else for ${esc(t.title)}"><option value="">Something else…</option>
+          <optgroup label="Move to">${stagesOf(t.boardId).filter(x => x.id !== t.status && !x.done).map(x => `<option value="stage:${esc(x.id)}">${esc(x.name)}</option>`).join('')}</optgroup>
+          <optgroup label="Finish">${isDone(t) ? '' : '<option value="done">Mark complete</option>'}<option value="archive">Archive</option><option value="delete">Delete</option></optgroup></select></span></div>`; }).join('');
   return `<div class="m-back"><div class="m-panel" style="max-width:640px" role="dialog" aria-modal="true" aria-label="Review"><div class="m-head"><h2 class="font-display" style="font-weight:700;font-size:18px;flex:1">${list.length} task${list.length === 1 ? '' : 's'} to review</h2><button class="btn btn-ghost btn-icon" data-act="rv-close" aria-label="Decide later">${ic('x')}</button></div>
     <div class="m-body single"><p class="note" style="margin-bottom:8px">These have been in their column longer than your automation settings allow. They are flagged until you decide. <b>Keep</b> starts the clock again.</p>${rows || '<p class="note">Nothing to review.</p>'}</div>
     <div class="m-foot">${list.length > 1 ? `<button class="btn" data-act="rv-move-all">${ic('check-check')}Move all</button>` : ''}<span style="flex:1"></span><button class="btn" data-act="rv-close">Decide later</button></div></div></div>`;
@@ -2789,6 +2802,7 @@ document.addEventListener('change', e => {
   if (el.id === 'bgColor'){ S.settings.bg = { type:'color', value:el.value, dim:S.settings.bg.dim || 0 }; save(); applyBg(); renderModal(); return; }
   if (el.id === 'bgFile' && el.files[0]){ setBgImage(el.files[0]); return; }
   if (el.id === 'restoreFile' && el.files[0]){ const r = new FileReader(); r.onload = () => { $('#restoreJson').value = r.result; }; r.readAsText(el.files[0]); return; }
+  if (el.dataset.rvMore !== undefined){ if (el.value){ reviewOther(el.dataset.rvMore, el.value); afterReview(); } return; }
   if (el.dataset.sync){
     const k = el.dataset.sync, c = S.meta.sync;
     if (k === 'mode' && el.value !== 'off' && S.sample){ toast('Clear the sample data first (Settings, Data), then turn sync on.', null, 5000); renderModal(); return; }

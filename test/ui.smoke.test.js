@@ -1072,3 +1072,26 @@ test('Views: save the current layout and boards/projects, apply from the sidebar
   assert.equal(st.savedViews.length, 0); assert.ok(st.tombstones.some(t => t.kind === 'savedView'));
   assert.equal(JSON.stringify(a.errs), JSON.stringify([])); a.close();
 });
+
+test('stale review: "Something else" can move to any stage, mark complete, archive or delete', { skip }, async () => {
+  const a = await launch(), { d, click, change } = a, bid = S(a).boards[0].id;
+  const ago = n => { const x = new Date(); x.setDate(x.getDate() - n); x.setHours(12, 0, 0, 0); return x.toISOString(); };
+  const add = (title, flag) => { const t = a.w.CoS.core.newTask({ boardId: bid, title, status: 'long-term', stageAt: ago(45), importance: 3, flag: flag || '' }); S(a).tasks.push(t); return t; };
+  const t1 = add('To consider', 'blue'), t2 = add('To finish'), t3 = add('To archive'), t4 = add('To delete');
+  a.api.runAutomation(); await tick(120);
+  assert.equal(a.api.ui.modal && a.api.ui.modal.type, 'review');
+  const sel = t => d.querySelector(`select[data-rv-more="${t.id}"]`);
+  const opts = [...sel(t1).options].map(o => o.textContent);
+  assert.ok(opts.includes('Consider') && opts.includes('Mark complete') && opts.includes('Archive') && opts.includes('Delete') && !opts.includes('Long-Term'), opts.join('|'));
+  change(sel(t1), 'stage:consider'); await tick(30);
+  const get = t => S(a).tasks.find(x => x.id === t.id);
+  assert.equal(get(t1).status, 'consider'); assert.equal(get(t1).review, null); assert.equal(get(t1).flag, 'blue', 'our flag comes off, theirs stays');
+  change(sel(t2), 'done'); await tick(30);
+  assert.ok(a.w.CoS.core.isDoneTask(get(t2), S(a).boards)); assert.equal(get(t2).review, null);
+  change(sel(t3), 'archive'); await tick(30);
+  assert.equal(get(t3).archived, true);
+  change(sel(t4), 'delete'); await tick(40);
+  assert.ok(!get(t4)); assert.ok(S(a).tombstones.some(t => t.id === t4.id));
+  assert.equal(a.api.ui.modal, null, 'closes when everything is decided');
+  assert.deepEqual(a.errs, []); a.close();
+});
