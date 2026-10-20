@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('cosHost', {
   info: () => call('app:info'),
   log: text => call('log:write', String(text).slice(0, 4000)),
   http: req => call('net:fetch', req),
+  loopback: { start: () => call('loopback:start'), wait: () => call('loopback:wait'), cancel: () => call('loopback:cancel') },
   setReminders: list => call('reminders:set', list),
   notify: opts => call('notify', opts),
   saveFile: opts => call('file:save', opts),

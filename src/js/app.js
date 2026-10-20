@@ -269,7 +269,7 @@ function syncTabHTML(){
     <p class="note" style="margin-top:14px">This device: <span class="mono">${esc(S.meta.deviceId.slice(0, 8))}</span></p>`;
 }
 
-const ui = { od:{ phase:'idle', code:'', uri:'', msg:'', status:null, live:false, liveError:'' }, pop:null, modal:null, quick:null, search:'', sideOpen:false, cal:todayStr().slice(0,7), calSel:todayStr(), sort:{ key:'status', dir:1 }, settingsTab:'appearance', dragging:false, pending:false, lastDay:todayStr(), tableLimit:200, limits:{}, lanesOff:{}, groupsOff:{}, foldersOff:{}, ctx:null, rename:null, renameVal:'' };
+const ui = { gm:{ phase:'idle', msg:'', status:null, busy:false }, od:{ phase:'idle', code:'', uri:'', msg:'', status:null, live:false, liveError:'' }, pop:null, modal:null, quick:null, search:'', sideOpen:false, cal:todayStr().slice(0,7), calSel:todayStr(), sort:{ key:'status', dir:1 }, settingsTab:'appearance', dragging:false, pending:false, lastDay:todayStr(), tableLimit:200, limits:{}, lanesOff:{}, groupsOff:{}, foldersOff:{}, ctx:null, rename:null, renameVal:'' };
 const T = id => S.tasks.find(t => t.id === id);
 const boardOf = id => S.boards.find(b => b.id === id);
 const projOf = id => S.projects.find(p => p.id === id);
@@ -2120,7 +2120,7 @@ function settingsHTML(){
       <p class="note" style="margin-top:6px">Tasks blocked by an unfinished dependency stop at Near-Term. A task you drag by hand is left alone until you change its importance or dates, or switch automation back on in its editor.</p>
       <button class="btn" style="margin-top:12px" data-act="auto-run">${ic('zap')}Run automation now</button>`;
   } else if (tab === 'integrations'){
-    body = `<div class="card-box"><div class="flex items-center gap-3"><span style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center">${ic('mail', 'w-5 h-5')}</span><div style="flex:1"><b style="font-weight:650">Microsoft Exchange / Outlook</b><p class="note">Turns flagged or incoming mail into tasks.</p></div><span class="pill" style="font-size:12px;padding:3px 9px;border-radius:99px;background:var(--surface-3)">Not connected</span></div>
+    body = gmailCardHTML() + `<div class="card-box" style="margin-top:16px"><div class="flex items-center gap-3"><span style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center">${ic('mail', 'w-5 h-5')}</span><div style="flex:1"><b style="font-weight:650">Microsoft Exchange / Outlook</b><p class="note">Turns flagged or incoming mail into tasks.</p></div><span class="pill" style="font-size:12px;padding:3px 9px;border-radius:99px;background:var(--surface-3)">Not connected</span></div>
       <p class="note" style="margin-top:10px">The mapping layer is built and tested below. A live mailbox connection needs a small relay service that calls Microsoft Graph and hands messages to <code>CoS.api.ingestEmails()</code>, because the web page itself cannot hold a Microsoft sign-in. In the Windows app the poller can run in the app's main process instead.</p></div>
       <div class="sec-h" style="margin-top:18px">Import rules</div>
       <div class="field-row"><span>Target board</span><select class="inp" style="width:190px" data-set="integrations.exchange.targetBoard" data-type="str"><option value="">First selected board</option>${S.boards.map(b => `<option value="${b.id}" ${X.targetBoard === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></div>
@@ -2200,8 +2200,90 @@ function ingestEmails(msgs, adapter = 'exchange'){
   if (added){ runAutomation(); save(); render(); }
   return { added, skipped };
 }
+/* ---------- Gmail: email in, as tasks and subtasks ---------- */
+const GM = CoS.gmailLib.create({ http: r => Host.http(r), kv: { get: k => Host.kv.get(k), set: (k, v) => Host.kv.set(k, v), remove: k => Host.kv.remove(k) }, loopback: Host.loopback, openExternal: u => Host.openExternal(u) });
+const gmCfg = () => S.settings.integrations.gmail;
+function ingestGmail(msgs, own){
+  const c = gmCfg(), ad = CoS.ingest.adapters.gmail, out = { tasks:0, subs:0, done:0, skipped:0, notes:[] };
+  for (const m of msgs){
+    const open = S.tasks.filter(t => !t.archived && !isDone(t));
+    const p = ad.planGmail(m, open, c, own);
+    if (p.action === 'skip'){ out.skipped++; continue; }
+    if (p.action === 'task'){
+      if (S.tasks.some(t => t.external && t.external.source === 'gmail' && t.external.id === p.draft.external.id)){ out.skipped++; continue; }
+      const bid = c.targetBoard && boardOf(c.targetBoard) ? c.targetBoard : primaryBoard();
+      const st = Tools.stageIdByKey(boardOf(bid), c.targetColumn || 'consider') || firstOpenStage(bid);
+      const t = newTask(Object.assign(p.draft, { boardId: bid, status: st, source: 'gmail', order: nextOrder(st) }));
+      if (st === 'scheduled') t.scheduledFlow = true;
+      logTask(t, 'Created from a Gmail message'); if (p.note){ logTask(t, p.note); out.notes.push(p.note); }
+      S.tasks.push(t); out.tasks++; continue;
+    }
+    const sid = 'gm_' + m.id, par = p.parent;
+    if (S.tasks.some(t => t.subitems.some(x => x.id === sid))){ out.skipped++; continue; }
+    const same = CoS.ingest.norm(p.title), found = p.done ? par.subitems.find(x => !x.taskId && !x.done && CoS.ingest.norm(x.title) === same) : null;
+    if (found){ found.done = true; logTask(par, `Subtask "${found.title}" ticked off from an email`); out.done++; }
+    else { par.subitems.push({ id: sid, title: p.title, done: p.done, taskId: null, stick: false }); logTask(par, `Subtask "${p.title}" added from an email`); out.subs++; }
+    par.updated = nowISO();
+  }
+  if (out.tasks || out.subs || out.done){ runAutomation(); save(); render(); }
+  return out;
+}
+async function gmailPoll(manual){
+  const c = gmCfg(); if (!Host.loopback || !c.enabled || ui.gm.busy) return;
+  const st = await GM.status(); ui.gm.status = st;
+  if (!st.signedIn){ if (manual) toast('Sign in to Gmail first.'); return; }
+  ui.gm.busy = true; gmRefresh();
+  try{
+    const seen = new Set(c.seen || []);
+    for (const t of S.tasks){ if (t.external && t.external.source === 'gmail') seen.add(t.external.id); for (const x of t.subitems || []) if (/^gm_/.test(x.id)) seen.add(x.id.slice(3)); }
+    const r = await GM.fetchRecent({ days: c.days, skip: seen });
+    const res = ingestGmail(r.messages, st.email);
+    c.seen = [...new Set([...(c.seen || []), ...r.messages.map(m => m.id)])].slice(-500);
+    c.last = nowISO(); c.error = '';
+    const bits = [res.tasks && `${res.tasks} new task${res.tasks > 1 ? 's' : ''}`, res.subs && `${res.subs} subtask${res.subs > 1 ? 's' : ''} added`, res.done && `${res.done} subtask${res.done > 1 ? 's' : ''} ticked off`].filter(Boolean);
+    if (bits.length) toast('Gmail: ' + bits.join(', ') + '.', null, 6000);
+    else if (manual) toast(r.messages.length ? 'Checked Gmail: nothing new that matches.' : 'Checked Gmail: no new tagged messages.', null, 3500);
+    for (const n of res.notes.slice(0, 2)) toast(n, null, 7000);
+  }catch(e){
+    c.error = String((e && e.message) || e);
+    if (e && e.auth) ui.gm.status = await GM.status();
+    if (manual) toast(c.error, null, 8000);
+  }
+  ui.gm.busy = false; save(); gmRefresh();
+}
+function gmRefresh(){ if (ui.modal && ui.modal.type === 'settings' && ui.settingsTab === 'integrations') renderModal(); }
+function gmailCardHTML(){
+  const c = gmCfg(), g = ui.gm, st = g.status, desk = !!Host.loopback;
+  if (!st && desk) GM.status().then(x => { ui.gm.status = x; gmRefresh(); });
+  const head = `<div class="flex items-center gap-3"><span style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center">${ic('mail', 'w-5 h-5')}</span><div style="flex:1"><b style="font-weight:650">Gmail</b><p class="note">Email yourself a task, or a subtask on an existing one. Read-only: the app can never send, change or delete mail.</p></div><span class="pill" style="font-size:12px;padding:3px 9px;border-radius:99px;background:var(--surface-3)">${st && st.signedIn ? 'Connected' : 'Not connected'}</span></div>`;
+  if (!desk) return `<div class="card-box">${head}<p class="note" style="margin-top:10px">Gmail connects in the Windows app (Google only lets a program running on your own computer sign in this way). Tasks it creates sync to this device through OneDrive like everything else.</p></div>`;
+  const err = g.msg ? `<p class="note" style="color:var(--danger);margin-top:8px" role="alert">${esc(g.msg)}</p>` : '';
+  const sels = `<div class="field-row"><span>Target board</span><select class="inp" style="width:190px" data-set="integrations.gmail.targetBoard" data-type="str"><option value="">First selected board</option>${S.boards.map(b => `<option value="${b.id}" ${c.targetBoard === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></div>
+      <div class="field-row"><span>New tasks land in column</span><select class="inp" style="width:190px" data-set="integrations.gmail.targetColumn" data-type="str">${Tools.unionStages(S.boards).map(x => `<option value="${x.key}" ${c.targetColumn === x.key ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></div>
+      <div class="field-row"><div style="min-width:0"><span>Also accept mail from</span><p class="note">Your own address is always accepted. Add others, separated by commas.</p></div><input class="inp" style="width:230px" data-set="integrations.gmail.allowFrom" data-type="str" value="${esc(c.allowFrom || '')}" placeholder="partner@example.com" autocomplete="off" spellcheck="false"></div>
+      <div class="field-row"><span>Look back</span><span class="flex items-center gap-2">${`<input type="number" class="inp" style="width:70px" min="1" max="60" data-set="integrations.gmail.days" data-type="num" value="${c.days || 7}">`}<span class="note">days</span></span></div>`;
+  const how = `<div class="card-box" style="margin-top:10px;background:var(--surface-3)"><b style="font-weight:650">How to write the email</b>
+      <p class="note" style="margin-top:4px">Put a tag in the subject (or on the first line of the body):</p>
+      <ul class="note" style="margin:4px 0 0 18px;list-style:disc;line-height:1.7"><li><span class="mono">Order printer paper #task</span> makes a new task.</li><li><span class="mono">#sub Quarterly review: send invoice</span> adds an unfinished subtask to the task whose title is before the colon.</li><li><span class="mono">#subdone Quarterly review: send invoice</span> adds it already finished, or ticks it off if it is already there.</li><li>Replying inside the thread of a task that came from email needs no "Quarterly review:" part.</li></ul></div>`;
+  if (st && st.signedIn) return `<div class="card-box">${head}
+      <div class="field-row" style="margin-top:8px"><span style="min-width:0"><b style="font-weight:650">Signed in to Gmail</b><br><span class="note">${esc(st.email || 'Google account')}</span></span><span class="flex gap-2"><button class="btn btn-sm" data-act="gm-check" ${g.busy ? 'disabled' : ''}>${ic('rotate-ccw', 'w-3.5 h-3.5')}${g.busy ? 'Checking…' : 'Check now'}</button><button class="btn btn-sm" data-act="gm-signout">Sign out</button></span></div>
+      <div class="field-row"><div><b style="font-weight:650">Read my mail for tagged messages</b><p class="note">Checks every 5 minutes while the app is open. ${c.last ? 'Last check ' + esc(timeAgo(c.last)) + '.' : ''}</p></div>${sw('integrations.gmail.enabled', c.enabled, 'Read Gmail')}</div>
+      ${c.error ? `<p class="note" style="color:var(--danger)" role="alert">${esc(c.error)}</p>` : ''}${sels}${how}</div>`;
+  return `<div class="card-box">${head}
+      <label class="lbl" for="gmClient" style="margin-top:10px">Client ID</label><input id="gmClient" class="inp mono" value="${esc(c.clientId || '')}" data-gm="clientId" placeholder="1234567890-abc123.apps.googleusercontent.com" autocomplete="off" spellcheck="false">
+      <label class="lbl" for="gmSecret" style="margin-top:10px">Client secret</label><input id="gmSecret" class="inp mono" type="password" data-gm="secret" value="${esc(g.secret || '')}" placeholder="GOCSPX-…" autocomplete="off" spellcheck="false">
+      <div class="flex gap-2 items-center" style="margin-top:10px"><button class="btn btn-primary" data-act="gm-signin" ${g.phase === 'waiting' ? 'disabled' : ''}>${ic('user-plus')}${g.phase === 'waiting' ? 'Waiting for Google…' : 'Sign in with Google'}</button>${g.phase === 'waiting' ? `<button class="btn btn-ghost" data-act="gm-cancel">Cancel</button>` : ''}</div>${err}
+      <details style="margin-top:12px"><summary style="cursor:pointer;font-weight:600">Where do I get the client ID and secret? (one-time, about 10 minutes)</summary>
+        <ol class="note" style="margin:8px 0 0 22px;line-height:1.7;list-style:decimal">
+          <li>Go to <b>console.cloud.google.com</b> and sign in with the Gmail account. Create a project (any name, such as Cursus).</li>
+          <li><b>APIs &amp; Services → Library</b> → search <b>Gmail API</b> → <b>Enable</b>.</li>
+          <li><b>APIs &amp; Services → OAuth consent screen</b> (called <b>Google Auth Platform</b> in newer consoles) → set it up: app name Cursus CoS, your email, audience <b>External</b>. Under <b>Data access</b> add the scope <span class="mono">.../auth/gmail.readonly</span>. Under <b>Audience</b> add your Gmail address as a test user, then press <b>Publish app</b> (In production) so the sign-in does not expire every 7 days. Google will warn that the app is unverified: that is fine for your own use.</li>
+          <li><b>Credentials → Create credentials → OAuth client ID</b> → type <b>Desktop app</b> → Create. Copy the <b>Client ID</b> and <b>Client secret</b> into the boxes above.</li>
+          <li>Press Sign in. On the Google page choose <b>Advanced → Go to Cursus CoS (unsafe)</b>, then allow read access to your email.</li></ol>
+        <p class="note" style="margin-top:6px">The client ID and secret stay on this computer. The secret of a desktop-app client is not confidential, but do not share it.</p></details></div>`;
+}
 const sampleMail = () => CoS.ingest.sampleMail(addDays, todayStr);
-CoS.api = { dropTo, changeBoard, ingestEmails, get state(){ return S; }, ui, render, runAutomation, openTask, syncNow: () => syncNow(true), sampleMail };
+CoS.api = { dropTo, changeBoard, ingestEmails, ingestGmail, gmailPoll, get state(){ return S; }, ui, render, runAutomation, openTask, syncNow: () => syncNow(true), sampleMail };
 
 /* ---------- drag engine (mouse + touch) ---------- */
 const DG = { p:null, on:false, ghost:null, ph:null, src:null, x:0, y:0, raf:0, hot:null, target:null, timer:0, justDropped:false, off:{ x:0, y:0 } };
@@ -2450,6 +2532,21 @@ const ACTIONS = {
     ranked.forEach((t, i) => { t.order = (i + 1) * 10; t.pin = null; t.updated = nowISO(); });
     save(); render();
     toast(`Sorted ${items.length} tasks: most important and urgent first.`, { label:'Undo', fn:() => { for (const [id, o, p] of before){ const t = T(id); if (t){ t.order = o; t.pin = p; } } save(); render(); } }, 6000);
+  },
+  async 'gm-signin'(){
+    const g = ui.gm, c = gmCfg(), id = ($('#gmClient') || {}).value || c.clientId || '', sec = ($('#gmSecret') || {}).value || '';
+    c.clientId = id.trim(); g.secret = sec; g.msg = ''; g.phase = 'waiting'; renderModal();
+    try{
+      const res = await GM.signIn(id, sec);
+      g.phase = 'idle'; g.secret = ''; g.status = { signedIn:true, email:res.email }; c.enabled = true; c.error = ''; save(); renderModal();
+      toast('Signed in to Gmail.', null, 3000); gmailPoll(true);
+    }catch(e){ g.phase = 'idle'; g.msg = String((e && e.message) || e); renderModal(); }
+  },
+  'gm-cancel'(){ try{ Host.loopback && Host.loopback.cancel(); }catch(e){} ui.gm.phase = 'idle'; renderModal(); },
+  'gm-check'(){ gmailPoll(true); },
+  async 'gm-signout'(){
+    if (!await confirmBox({ title:'Sign out of Gmail?', body:'The app stops reading your mail. Tasks it already made are kept.', ok:'Sign out' })) return;
+    await GM.signOut(); ui.gm.status = { signedIn:false }; gmCfg().enabled = false; save(); renderModal();
   },
   'sync-now'(){ syncNow(true); },
   async 'od-signin'(){
@@ -2812,6 +2909,7 @@ document.addEventListener('change', e => {
     return;
   }
   if (el.dataset.set){
+    if (el.dataset.set === 'integrations.gmail.allowFrom') gmCfg().seen = [];   // mail that was ignored before may be welcome now
     const v = el.dataset.type === 'num' ? Math.max(+el.min || 0, Math.min(+el.max || 999, parseInt(el.value, 10) || 0)) : el.value;
     setPath(S.settings, el.dataset.set, v); save(); if (el.dataset.set.startsWith('automation')){ runAutomation(); render(); } return;
   }
@@ -2913,6 +3011,7 @@ async function boot(){
   }, 20000);
   await odResume();
   pushReminders(); scheduleSync(1500); odWatch();
+  if (Host.loopback){ setTimeout(() => gmailPoll(false), 6000); setInterval(() => { if (!document.hidden) gmailPoll(false); }, 5 * 60 * 1000); }
   registerSW();
 }
 boot().catch(e => { console.error(e); const c = $('#content'); if (c) c.innerHTML = '<p class="note" style="padding:24px">Cursus CoS could not start: ' + esc((e && e.message) || e) + '</p>'; });

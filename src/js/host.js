@@ -127,7 +127,7 @@
     },
     ready: () => Promise.resolve(),
     log: text => { try{ if (el && el.log) el.log(text); }catch(e){} },
-    kv, http, info, notify, ensureNotifyPermission, syncReminders, onOpenTask, onBack, saveFile, openExternal,
+    kv, http, loopback: (el && el.loopback) || null, info, notify, ensureNotifyPermission, syncReminders, onOpenTask, onBack, saveFile, openExternal,
     fileSync: el && el.sync ? el.sync : null
   };
   void noop;

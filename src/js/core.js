@@ -345,7 +345,7 @@
     followUp:{ ask:true }, viewSel:{}, subscribed:[], personalTags:{}, ruleFired:{}, me:'', addons:{ ical:true, colors:true, email:true },
     importMaps:{ zenkit:{ stages:{}, priorities:{} } },
     importPrefs:{ zenkit:{ archiveDays:30, keepStageTag:true, workloadUnit:'hours' } },
-    integrations:{ exchange:{ enabled:false, folder:'Inbox', targetBoard:'', targetColumn:'consider', onlyFlagged:false, mapImportance:true, mapFlagDue:true, mapCategories:true } }
+    integrations:{ gmail:{ enabled:false, clientId:'', allowFrom:'', targetBoard:'', targetColumn:'consider', days:7, seen:[], last:'', error:'' }, exchange:{ enabled:false, folder:'Inbox', targetBoard:'', targetColumn:'consider', onlyFlagged:false, mapImportance:true, mapFlagDue:true, mapCategories:true } }
   });
   const SYNC_DEFAULTS = () => ({ mode:'off', url:'', auth:'', clientId:'', last:null, error:'' });
 

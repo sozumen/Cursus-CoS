@@ -352,3 +352,16 @@ The pulse icon on a card (or **Mark in process** in its menu) highlights it with
 A view is a saved combination of a layout (Kanban, List, Table or Calendar) and the boards and projects it shows. They sit at the top of the left bar: click one to switch to it, press + to save what you are looking at, and use the three-dot button on a row to rename, change or delete it. A view with no boards ticked shows every board; with no projects ticked it shows every project. Views are shared data, so they sync to your other devices like boards do.
 
 In the stale-task review, each task also has a **Something else…** menu: move it to any other stage of its board (Consider, say), mark it complete, archive it, or delete it (delete and archive have Undo).
+
+## Gmail: email yourself tasks and subtasks (Windows app)
+
+Settings, Email, Gmail. Sign in with Google (read-only: the app can read mail but never send, change or delete it). It checks every 5 minutes while the app is open, plus a **Check now** button. Only mail from your own address is used, plus any addresses you add.
+
+Put a tag in the subject, or on the first line of the body:
+
+- `Order printer paper #task` creates a task (in the board and column chosen in the card).
+- `#sub Quarterly review: send invoice` adds an unfinished subtask to the task whose title is before the colon (closest title wins; a weak match is never guessed, it becomes a normal task and says so).
+- `#subdone Quarterly review: send invoice` adds a finished subtask, or ticks it off if that item already exists.
+- Replying in the thread of a task that came from email needs no title: `#sub next step` in the reply is enough.
+
+One-time setup of the Google client (free, about 10 minutes) is written out inside the Gmail card. The Google sign-in uses a one-shot web server on 127.0.0.1 that exists only while you are signing in. The client ID and secret are kept in the app's data folder, not in the synced data. Set the consent screen to "In production" so the sign-in does not expire every 7 days.

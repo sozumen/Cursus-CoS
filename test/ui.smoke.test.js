@@ -1095,3 +1095,54 @@ test('stale review: "Something else" can move to any stage, mark complete, archi
   assert.equal(a.api.ui.modal, null, 'closes when everything is decided');
   assert.deepEqual(a.errs, []); a.close();
 });
+
+/* ---------- Gmail (fake Google, simulated Windows host) ---------- */
+test('Gmail: sign in, tagged mail becomes tasks and subtasks, completion ticks items, repeats are ignored, sign out', { skip }, async () => {
+  const CLIENT = '123456789012-abcdefghijk.apps.googleusercontent.com', SECRET = 'GOCSPX-secret';
+  const b64 = s => Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const mk = (id, subject, text, thread) => ({ id, threadId: thread || 't' + id, internalDate: String(Date.now()), payload: { mimeType: 'text/plain', headers: [{ name: 'Subject', value: subject }, { name: 'From', value: 'Me <me@gmail.com>' }], body: { data: b64(text) } } });
+  const mails = [mk('g1', 'Order printer paper #task', 'two reams'), mk('g2', '#sub Vendor onboarding: ask Globex', ''), mk('g3', '#subdone Vendor onboarding: Request quote from Northwind IT', ''), mk('g4', 'newsletter about a task', 'x')];
+  const calls = [];
+  const http = async r => {
+    calls.push(r.url.replace(/\?.*/, ''));
+    const J = (s, o) => ({ status: s, headers: {}, text: JSON.stringify(o) });
+    if (r.url.startsWith('https://oauth2.googleapis.com/token')) return J(200, { access_token: 'a1', refresh_token: 'r1', expires_in: 3600 });
+    if (r.url.endsWith('/profile')) return J(200, { emailAddress: 'me@gmail.com' });
+    if (r.url.includes('/messages?')) return J(200, { messages: mails.map(m => ({ id: m.id })) });
+    const m = mails.find(x => r.url.includes('/messages/' + x.id)); return m ? J(200, m) : J(404, {});
+  };
+  const store = {}; let opened = '';
+  const pre = w => { w.cosHost = { platform: 'desktop', kv: { get: async k => store[k] ?? null, set: async (k, v) => { store[k] = v; }, remove: async k => { delete store[k]; } }, http,
+    info: async () => ({ platform: 'desktop', version: '1.0.test', dataPath: 'x' }), openExternal: async u => { opened = u; }, log: () => {},
+    loopback: { start: async () => ({ port: 5555 }), wait: async () => ({ code: 'C', state: new URL(opened).searchParams.get('state') }) } }; };
+  const a = await launch(pre), { d, click, typeIn, change } = a, st = S(a);
+  Object.defineProperty(a.w, 'crypto', { value: require('node:crypto').webcrypto, configurable: true }); a.w.TextEncoder = TextEncoder;
+  st.sample = false;
+  a.api.ui.settingsTab = 'integrations'; click('[data-act=settings]'); click('[data-act=set-tab][data-v=integrations]'); await tick(30);
+  assert.match(d.querySelector('#modalRoot').textContent, /Gmail/); assert.ok(d.querySelector('#gmClient'));
+  d.querySelector('#gmClient').value = CLIENT; d.querySelector('#gmSecret').value = SECRET;
+  const board = st.boards[0].id; const quotes = a.w.CoS.core.newTask({ boardId: board, title: 'Vendor onboarding', status: 'in-progress', subitems: [{ id: 's1', title: 'Request quote from Northwind IT', done: false, taskId: null }] }); st.tasks.push(quotes);
+  click('[data-act=gm-signin]'); for (let i = 0; i < 60 && !/Signed in to Gmail/.test(d.querySelector('#modalRoot').textContent); i++) await tick(25);
+  assert.match(d.querySelector('#modalRoot').textContent, /me@gmail\.com/);
+  assert.equal(new URL(opened).searchParams.get('scope'), 'https://www.googleapis.com/auth/gmail.readonly');
+  for (let i = 0; i < 60 && !st.tasks.some(t => t.title === 'Order printer paper'); i++) await tick(25);
+  const paper = st.tasks.find(t => t.title === 'Order printer paper'); assert.ok(paper, 'a new task from #task');
+  assert.equal(paper.source, 'gmail'); assert.equal(paper.status, 'consider'); assert.ok(paper.tags.includes('email')); assert.match(paper.description, /two reams/);
+  const q = st.tasks.find(t => t.id === quotes.id);
+  assert.ok(q.subitems.some(s => s.title === 'ask Globex' && s.done === false), 'unfinished subtask added');
+  assert.equal(q.subitems.find(s => s.id === 's1').done, true, 'existing item ticked off by #subdone');
+  assert.equal(q.subitems.length, 2);
+  assert.ok(!st.tasks.some(t => /newsletter/.test(t.title)), 'untagged mail ignored');
+  // a second check does not repeat anything
+  const n = st.tasks.length; await a.api.gmailPoll(true); await tick(30);
+  assert.equal(st.tasks.length, n); assert.equal(st.tasks.find(t => t.id === quotes.id).subitems.length, 2);
+  assert.ok(!JSON.stringify(st.settings).includes(SECRET), 'the secret is not kept in the app data');
+  // sign out
+  click('[data-act=gm-signout]'); await tick(30); click([...d.querySelectorAll('#confirmRoot button')].find(b => /^Sign out$/.test(b.textContent.trim()))); await tick(60);
+  assert.ok(d.querySelector('#gmClient'), 'back to the sign-in form'); assert.equal(store['cos.gmailauth'], undefined);
+  assert.deepEqual(a.errs, []); a.close();
+});
+test('Gmail: the web page explains it needs the Windows app', { skip }, async () => {
+  const a = await launch(); a.api.ui.settingsTab = 'integrations'; a.click('[data-act=settings]'); a.click('[data-act=set-tab][data-v=integrations]'); await tick(30);
+  assert.match(a.d.querySelector('#modalRoot').textContent, /Gmail connects in the Windows app/); assert.ok(!a.d.querySelector('#gmClient')); a.close();
+});

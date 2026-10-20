@@ -134,9 +134,34 @@ handle('kv:set', async (key, value) => { await writeAtomic(kvFile(key), String(v
 handle('kv:remove', async key => { try{ await fsp.unlink(kvFile(key)); }catch(e){} });
 /* HTTPS requests for OneDrive sign-in and sync, made here so the page is not subject to browser cross-origin rules.
    Only Microsoft hosts are allowed. */
-const NET_HOSTS = ['microsoftonline.com', 'microsoft.com', 'microsoftpersonalcontent.com', '1drv.com', '1drv.ms', 'sharepoint.com', 'onedrive.com', 'live.com', 'svc.ms', 'livefilestore.com', 'microsoftusercontent.com'];
+const NET_HOSTS = ['microsoftonline.com', 'microsoft.com', 'microsoftpersonalcontent.com', '1drv.com', '1drv.ms', 'sharepoint.com', 'onedrive.com', 'live.com', 'svc.ms', 'livefilestore.com', 'microsoftusercontent.com', 'googleapis.com', 'google.com'];
 const netFetch = require('./netfetch.js').create(net, u => u.protocol === 'https:' && NET_HOSTS.some(h => u.hostname === h || u.hostname.endsWith('.' + h)));
 handle('net:fetch', async ({ url, method, headers, body }) => netFetch({ url, method, headers, body }));
+/* Sign-in for Google (Gmail): Google sends the browser back to http://127.0.0.1:<port>. This runs a one-shot web server for that,
+   only while a sign-in is waiting, and only answers the one request that carries Google's answer. */
+let loop = null;
+const closeLoop = () => { if (loop){ try{ loop.server.close(); }catch(e){} clearTimeout(loop.timer); loop = null; } };
+handle('loopback:start', async () => {
+  closeLoop();
+  const http = require('http'); let done; const answer = new Promise(r => { done = r; });
+  const server = http.createServer((req, res) => {
+    const q = new URL(req.url, 'http://127.0.0.1').searchParams;
+    if (!q.get('code') && !q.get('error')){ res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end('<!doctype html><meta charset="utf-8"><title>Cursus CoS</title><body style="font:16px system-ui;margin:12vh auto;max-width:28em;text-align:center"><h2>All done</h2><p>You are connected to Cursus CoS. You can close this tab and go back to the app.</p></body>');
+    done({ code: q.get('code') || '', state: q.get('state') || '', error: q.get('error') || '', error_description: q.get('error_description') || '' });
+  });
+  await new Promise((ok, no) => { server.once('error', no); server.listen(0, '127.0.0.1', ok); });
+  loop = { server, answer, timer: 0 };
+  return { port: server.address().port };
+});
+handle('loopback:wait', async () => {
+  if (!loop) throw new Error('No sign-in is waiting.');
+  const me = loop;
+  const timeout = new Promise((_, no) => { me.timer = setTimeout(() => no(new Error('The sign-in took too long. Try again.')), 5 * 60 * 1000); });
+  try{ return await Promise.race([me.answer, timeout]); } finally { if (loop === me) closeLoop(); }
+});
+handle('loopback:cancel', async () => { closeLoop(); });
 handle('log:write', async text => { logCrash('page', String(text)); });
 handle('app:info', async () => ({ platform: 'desktop', os: process.platform, version: app.getVersion(), dataPath: dataDir() }));
 handle('reminders:set', async list => { reminders = Array.isArray(list) ? list.filter(r => r && Number.isFinite(r.at)) : []; checkReminders(); });
