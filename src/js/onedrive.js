@@ -195,7 +195,7 @@
     }
     function graphError(r, what){
       const j = parse(r.text), m = (j.error && j.error.message) || '';
-      if (r.status === 401) { const e = new Error('OneDrive refused the sign-in. Sign in again.'); e.auth = true; return e; }
+      if (r.status === 401) { const e = new Error('OneDrive refused the sign-in' + (m ? ' (' + String((j.error && j.error.code) || '401') + ': ' + m + ')' : ' (401)') + '. Sign in again; if it keeps happening, tell the developer this message.'); e.auth = true; e.refused = true; return e; }
       if (r.status === 403) return new Error('OneDrive did not allow that. Check the app has the Files.ReadWrite permission.');
       if (r.status === 429) return new Error('OneDrive asked the app to slow down. It will retry shortly.');
       if (r.status === 507) return new Error('Your OneDrive is full.');
@@ -215,7 +215,7 @@
           if (cache && etag && cache.etag === etag) return { data: clone(cache.data), etag };
           let r;
           const dl = item['@microsoft.graph.downloadUrl'];
-          if (dl) r = await deps.http({ url: dl, method: 'GET', headers: { Accept: 'application/json' } });
+          if (dl){ try{ r = await deps.http({ url: dl, method: 'GET', headers: { Accept: 'application/json' } }); }catch(e){ r = null; } }   // a browser may block the download address (cross-origin): fall back to Graph
           if (!r || r.status !== 200) r = await graph('GET', itemPath() + ':/content');
           if (r.status !== 200) throw graphError(r, 'download');
           if (!String(r.text).trim()){ cache = null; return null; }

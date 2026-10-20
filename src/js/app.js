@@ -143,7 +143,11 @@ async function syncNow(manual){
       break;
     }
     c.last = nowISO(); c.error = '';
-  }catch(e){ c.error = String((e && e.message) || e); if (e && e.auth) ui.od.status = { signedIn:false }; }
+  }catch(e){
+    c.error = String((e && e.message) || e);
+    // Only show "signed out" when the sign-in really is gone. A refusal from OneDrive keeps the sign-in and shows the reason.
+    if (e && e.auth && c.mode === 'onedrive'){ try{ ui.od.status = await OD.status(); }catch(x){ ui.od.status = { signedIn:false }; } }
+  }
   syncState.running = false; persistMeta(); renderSyncStatus();
   if (c.mode === 'onedrive' && ui.od.status && !ui.od.status.signedIn) odRenew();
   if (syncState.again){ syncState.again = false; scheduleSync(300); }
@@ -151,6 +155,7 @@ async function syncNow(manual){
 function syncLabel(){
   const c = S.meta.sync;
   if (c.mode === 'off') return '';
+  if (S.sample) return 'Paused: this is still the sample data. Clear it in Settings, Data, then sync.';
   if (c.mode === 'onedrive' && ui.od.status && !ui.od.status.signedIn) return 'Sign in to OneDrive in Settings, Sync';
   if (syncState.running) return 'Syncing…';
   if (c.error) return 'Sync problem: ' + c.error;

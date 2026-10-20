@@ -218,3 +218,19 @@ test('web sign-in: the day-long token is renewed silently (prompt=none), not mor
   assert.equal((await od.status()).signedIn, true);
   await od.signOut(); assert.deepEqual(await od.canRenewSilently(), { ok: false, hint: '' });
 });
+
+test('a 401 from Graph keeps the sign-in and reports the reason; a blocked download address falls back to Graph', async () => {
+  const ms = fakeMicrosoft(), { od, store, deps } = setup(ms);
+  await od.signIn(CLIENT);
+  const orig = deps.http;
+  deps.http = async r => (/graph\.microsoft\.com/.test(r.url) && /root:/.test(r.url) ? json(401, { error: { code: 'InvalidAuthenticationToken', message: 'Access token is empty.' } }) : orig(r));
+  await assert.rejects(od.adapter().pull(), e => e.auth && /InvalidAuthenticationToken/.test(e.message));
+  assert.ok(store['cos.msauth'], 'the stored sign-in is not thrown away');
+  assert.equal((await od.status()).signedIn, true);
+  deps.http = orig;
+  const ad = od.adapter(); await ad.push({ app: 'x', v: 1 });
+  const dlOrig = deps.http;
+  deps.http = async r => { if (!/graph\.microsoft\.com|login\./.test(r.url)) throw new TypeError('Failed to fetch'); return dlOrig(r); };
+  const got = await od.adapter().pull();
+  assert.ok(got && got.data);
+});
