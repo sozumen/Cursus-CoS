@@ -37,6 +37,14 @@ jobs:
       - name: Set version
         shell: bash
         run: npm pkg set version=1.0.${{ github.run_number }}
+      # GitHub only accepts a release for a tag that already exists, so create the tag for this version first
+      - name: Tag this version
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag v1.0.${{ github.run_number }}
+          git push origin v1.0.${{ github.run_number }}
       - run: node scripts/build.mjs
       - name: Build installer and publish release
         shell: bash
