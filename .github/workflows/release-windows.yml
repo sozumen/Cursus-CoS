@@ -47,7 +47,7 @@ jobs:
           cat build.log
           if [ $code -ne 0 ]; then
             # also put the end of the log in a visible message, so a failure can be read without opening the full log
-            msg=$(tail -n 30 build.log | tr '\r' ' ' | cut -c1-300 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            msg=$(grep -v '^  "' build.log | grep -v '^    at ' | tail -n 40 | tr '\r' ' ' | cut -c1-300 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
             echo "::error title=electron-builder failed (exit $code)::$msg"
             exit $code
           fi
