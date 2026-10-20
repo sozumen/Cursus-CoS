@@ -45,6 +45,12 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag v1.0.${{ github.run_number }}
           git push origin v1.0.${{ github.run_number }}
+      # Create the release once, here. (If electron-builder creates it, its parallel uploads race and make duplicate releases.)
+      - name: Create release
+        shell: bash
+        run: gh release create v1.0.${{ github.run_number }} --title "Cursus CoS 1.0.${{ github.run_number }}" --notes "Windows installer for Cursus CoS. Installed copies update themselves; your data is kept." --verify-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: node scripts/build.mjs
       - name: Build installer and publish release
         shell: bash
