@@ -190,12 +190,13 @@
         const token = await accessToken(attempt > 0);
         const r = await deps.http({ url, method, headers: Object.assign({ Authorization: 'Bearer ' + token, Accept: 'application/json' }, opts.headers || {}), body: opts.body });
         if (r.status === 401 && attempt === 0) continue;
+        r.req = method + ' ' + url.replace(GRAPH, '').replace(/\?.*$/, '').replace(/^\/me\/drive\/root:\/Apps\/Cursus%20CoS\//, '…/');
         return r;
       }
     }
     function graphError(r, what){
       const j = parse(r.text), m = (j.error && j.error.message) || '';
-      if (r.status === 401) { const e = new Error('OneDrive refused the sign-in' + (m ? ' (' + String((j.error && j.error.code) || '401') + ': ' + m + ')' : ' (401)') + '. Sign in again; if it keeps happening, tell the developer this message.'); e.auth = true; e.refused = true; return e; }
+      if (r.status === 401) { const e = new Error('OneDrive refused the sign-in' + (m ? ' (' + String((j.error && j.error.code) || '401') + ': ' + m + ')' : ' (401)') + ' at ' + (r.req || 'OneDrive') + '. Sign in again; if it keeps happening, tell the developer this message.'); e.auth = true; e.refused = true; e.req = r.req; return e; }
       if (r.status === 403) return new Error('OneDrive did not allow that. Check the app has the Files.ReadWrite permission.');
       if (r.status === 429) return new Error('OneDrive asked the app to slow down. It will retry shortly.');
       if (r.status === 507) return new Error('Your OneDrive is full.');
@@ -204,7 +205,23 @@
     const itemPath = () => '/me/drive/root:/' + encPath(FILE_PATH);
 
     /* ---------- the sync adapter ---------- */
+    /* A 401 on the file but not on the drive itself tells a different story from a bad token: say which. */
+    async function probe(e){
+      try{
+        if (!e || !e.refused) return e;
+        const d = await graph('GET', '/me/drive?$select=id,driveType');
+        e.message = e.message.replace(/\. Sign in again;/, ` (the drive itself ${d.status === 200 ? 'answered fine' : 'also failed: ' + d.status}). Sign in again;`);
+      }catch(x){}
+      return e;
+    }
     function adapter(){
+      const inner = adapter0();
+      return {
+        async pull(){ try{ return await inner.pull(); }catch(e){ throw await probe(e); } },
+        async push(d, t){ try{ return await inner.push(d, t); }catch(e){ throw await probe(e); } }
+      };
+    }
+    function adapter0(){
       return {
         async pull(){
           const sel = '?$select=id,eTag,size,@microsoft.graph.downloadUrl';
