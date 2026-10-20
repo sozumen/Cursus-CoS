@@ -280,3 +280,75 @@ test('stick with parent: automation leaves a stuck subtask to its parent', () =>
   assert.equal(autoMove([parent, kid], A, '2026-10-16').length, 0);
   parent.subitems[0].stick = false; assert.equal(autoMove([parent, kid], A, '2026-10-16').length, 1);
 });
+
+/* ---------- tasks that have sat in a stage too long ---------- */
+const { staleSuggestions, trackStages, daysInStage, normStale, STALE_DEFAULT } = core;
+const daysAgoISO = n => { const d = new Date(); d.setDate(d.getDate() - n); d.setHours(12, 0, 0, 0); return d.toISOString(); };
+const stale = (o, extra) => Object.assign(newTask(Object.assign({ boardId: 'b1', title: 'x' }, o)), extra || {});
+const board = () => core.newBoard({ id: 'b1', name: 'B' });
+
+test('stale rules: defaults are 30 days in Long-Term and 7 days in Near-Term', () => {
+  const d = STALE_DEFAULT();
+  assert.deepEqual(d.map(r => [r.from, r.days, r.to]), [['long-term', 30, 'near-term'], ['near-term', 7, 'up-next']]);
+  assert.equal(core.DEFAULTS().automation.stale.length, 2);
+});
+
+test('stale rules: "more than" the days, never on a start date still ahead, skips done, archived and already-asked tasks', () => {
+  const B = [board()], today = todayStr(), A2 = core.DEFAULTS().automation;
+  const ts = [
+    stale({ id: 'l31', status: 'long-term' }, { stageAt: daysAgoISO(31) }),                                  // asked
+    stale({ id: 'l30', status: 'long-term' }, { stageAt: daysAgoISO(30) }),                                  // exactly 30: not yet
+    stale({ id: 'lfut', status: 'long-term', start: addDays(today, 5) }, { stageAt: daysAgoISO(90) }),       // starts in the future: left alone
+    stale({ id: 'lpast', status: 'long-term', start: addDays(today, -5) }, { stageAt: daysAgoISO(90) }),     // start already passed: asked
+    stale({ id: 'n8', status: 'near-term' }, { stageAt: daysAgoISO(8) }),                                    // asked, to Up Next
+    stale({ id: 'n7', status: 'near-term' }, { stageAt: daysAgoISO(7) }),
+    stale({ id: 'c99', status: 'consider' }, { stageAt: daysAgoISO(99) }),                                   // no rule for Consider
+    stale({ id: 'done', status: 'done' }, { stageAt: daysAgoISO(99) }),
+    stale({ id: 'arch', status: 'long-term', archived: true }, { stageAt: daysAgoISO(99) }),
+    stale({ id: 'pend', status: 'long-term' }, { stageAt: daysAgoISO(99), review: { to: 'near-term' } })
+  ];
+  const r = staleSuggestions(ts, A2, today, B);
+  assert.deepEqual(r.map(x => x.t.id + '>' + x.to).sort(), ['l31>near-term', 'lpast>near-term', 'n8>up-next']);
+  assert.equal(r.find(x => x.t.id === 'l31').days, 31);
+});
+
+test('stale rules: a blocked task is not pushed to Up Next, a missing target stage or a disabled rule is skipped, automation off asks nothing', () => {
+  const b = board(), B = [b], today = todayStr();
+  const dep = stale({ id: 'dep', status: 'in-progress' });
+  const blocked = stale({ id: 'bl', status: 'near-term', deps: ['dep'] }, { stageAt: daysAgoISO(20) });
+  assert.equal(staleSuggestions([dep, blocked], core.DEFAULTS().automation, today, B).length, 0);
+  const A2 = core.DEFAULTS().automation; A2.stale[0].on = false;
+  assert.equal(staleSuggestions([stale({ status: 'long-term' }, { stageAt: daysAgoISO(50) })], A2, today, B).length, 0);
+  const A3 = core.DEFAULTS().automation; A3.stale[0].to = 'nowhere';
+  assert.equal(staleSuggestions([stale({ status: 'long-term' }, { stageAt: daysAgoISO(50) })], A3, today, B).length, 0);
+  const A4 = core.DEFAULTS().automation; A4.enabled = false;
+  assert.equal(staleSuggestions([stale({ status: 'long-term' }, { stageAt: daysAgoISO(50) })], A4, today, B).length, 0);
+});
+
+test('stale rules: a changed stage restarts the clock and drops a pending question (taking our flag off again)', () => {
+  const t = stale({ status: 'long-term', flag: '' }, { stageAt: daysAgoISO(40) });
+  assert.equal(daysInStage(t), 40);
+  assert.equal(trackStages([t]), 0, 'nothing changed yet');
+  t.review = { to: 'near-term', flag: 'orange', prevFlag: 'blue' }; t.flag = 'orange';
+  t.status = 'near-term';                                   // moved by hand, a rule, another device...
+  assert.equal(trackStages([t]), 1);
+  assert.equal(t.stageId, 'near-term'); assert.equal(daysInStage(t), 0);
+  assert.equal(t.review, null); assert.equal(t.flag, 'blue', 'flag restored');
+  const u = stale({ status: 'long-term' }); u.review = { to: 'near-term', flag: 'orange', prevFlag: '' }; u.flag = 'purple'; u.status = 'near-term';
+  trackStages([u]); assert.equal(u.flag, 'purple', 'a flag changed meanwhile is left alone');
+});
+
+test('stale rules: older data gets its clock from the move history, else the creation date; settings are cleaned', () => {
+  const at = '2026-01-05T10:00:00.000Z';
+  const n = normalize({ boards: [], projects: [], tasks: [
+    { id: 'a', boardId: 'x', title: 'a', status: 'long-term', created: '2025-12-01T00:00:00.000Z', log: [{ at: '2025-12-10T00:00:00.000Z', text: 'Moved Consider to Long-Term' }, { at, text: 'Moved Near-Term to Long-Term' }, { at: '2026-02-01T00:00:00.000Z', text: 'Moved to board "Ops"' }] },
+    { id: 'b', boardId: 'x', title: 'b', status: 'consider', created: '2025-11-11T00:00:00.000Z', log: [] },
+    { id: 'c', boardId: 'x', title: 'c', status: 'consider', review: 'junk' }
+  ] });
+  const by = id => n.tasks.find(t => t.id === id);
+  assert.equal(by('a').stageAt, at); assert.equal(by('b').stageAt, '2025-11-11T00:00:00.000Z'); assert.equal(by('c').review, null);
+  assert.deepEqual(normStale([null, { from: 'a', to: 'a' }, { from: 'Long Term', days: '12', to: 'Near-Term', flag: 'nope' }, { from: 'x', to: 'y', days: -4, on: false }]).map(r => [r.from, r.days, r.to, r.flag, r.on]),
+    [['long-term', 12, 'near-term', 'orange', true], ['x', 1, 'y', 'orange', false]]);
+  const m = normalize({ boards: [], projects: [], tasks: [], settings: { automation: { stale: 'oops' } } });
+  assert.equal(m.settings.automation.stale.length, 2, 'bad setting falls back to the defaults');
+});

@@ -308,6 +308,18 @@ A hosted copy gives you the app on every device (phone, tablet, other PCs) at on
 
 Microsoft limits web sign-ins to about a day. The page renews it quietly (it briefly reloads); you are only asked again if Microsoft wants a password.
 
+### Tasks that have sat too long
+Settings → Automation → *Ask about tasks that have sat too long*. Two rules are on by default and every number, column and flag color can be changed:
+
+| If a task has been in… | for more than | the app asks whether to move it to |
+|---|---|---|
+| Long-Term | 30 days | Near-Term |
+| Near-Term | 7 days | Up Next |
+
+When a task qualifies it gets the flag color (orange by default) and an hourglass icon, and a **review list** opens by itself once, with **Move to …** and **Keep in …** for each task (and *Move all*). *Decide later* closes it; the tasks stay flagged and are listed under **Needs review** in the sidebar. **Keep** puts the old flag back and starts the clock again; **Move** moves the task and puts the old flag back. If you move a task yourself while it is waiting, the question is dropped.
+
+Skipped: tasks with a start date still ahead, done or archived tasks, tasks already waiting for an answer, and (for Up Next) tasks blocked by an unfinished dependency. Time in a column is counted from when the task moved into it; older tasks use their last move in the activity log, or the day they were created. The rules refer to columns by name, so they apply on every board that has those columns.
+
 ## Updates: how a change reaches every device without losing data
 Your data is never part of the app. It lives in the browser's storage (web), in `%APPDATA%\Cursus CoS` (Windows) or the app's storage (Android), and in your OneDrive file. Updating the app replaces only the program.
 

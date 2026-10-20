@@ -4,7 +4,7 @@
 'use strict';
 
 const CoS = window.CoS, Host = CoS.host, Tools = CoS.tools;
-const { COLS, COL, nextOccurrence, nextDates, normRepeat, repeatLabel, isStuckChild, IMP_BAND, bandOf, clampImp, impColor, impMatch, setImp, STAGE_COLORS, MAX_STAGES, stageKey, isDoneTask, doneIdOf, mapStatus, defaultStages, PRI, FLAGS, uid, nowISO, clone, pad, fmtISO, parseD, todayStr, addDays, diffDays, hashId, newBoard, newView, BUILTIN_FIELDS, FIELD_TYPES, newTask, logTask, isBlocked, dueState, autoMove, autoArchive, reconcileDone, fireTime, parseEst, fmtEst, emptyFilters, normalize, fixRefs, resetHashes, stampChanges, extractData, isSyncPayload, mergeData, signature, seed } = CoS.core;
+const { COLS, COL, nextOccurrence, nextDates, normRepeat, repeatLabel, isStuckChild, IMP_BAND, bandOf, clampImp, impColor, impMatch, setImp, STAGE_COLORS, MAX_STAGES, stageKey, isDoneTask, doneIdOf, mapStatus, defaultStages, PRI, FLAGS, uid, nowISO, clone, pad, fmtISO, parseD, todayStr, addDays, diffDays, trackStages, staleSuggestions, daysInStage, hashId, newBoard, newView, BUILTIN_FIELDS, FIELD_TYPES, newTask, logTask, isBlocked, dueState, autoMove, autoArchive, reconcileDone, fireTime, parseEst, fmtEst, emptyFilters, normalize, fixRefs, resetHashes, stampChanges, extractData, isSyncPayload, mergeData, signature, seed } = CoS.core;
 
 /* ---------- small helpers ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -119,7 +119,7 @@ async function syncNow(manual){
   const c = S && S.meta.sync; if (!c || c.mode === 'off') return;
   if (syncState.running){ syncState.again = true; return; }   // a change alert arrived mid-sync: go round once more
   if (S.sample){ if (manual) toast('Clear the sample data first (Settings, Data).'); return; }
-  if (dirty){ reconcileDone(S.tasks, undefined, S.boards); stampChanges(S, hashes, nowISO()); }   // edits still waiting for the save debounce must be stamped before merging
+  if (dirty){ reconcileDone(S.tasks, undefined, S.boards); trackStages(S.tasks); stampChanges(S, hashes, nowISO()); }   // edits still waiting for the save debounce must be stamped before merging
   if (c.mode === 'onedrive'){
     const st = await OD.status();
     if (!st.signedIn){ c.error = ''; ui.od.status = st; if (await odRenew()) return; if (manual) toast('Sign in to OneDrive first.'); renderSyncStatus(); return; }
@@ -388,9 +388,53 @@ function applyMoves(moves){
     followParent(m.t);
   }
 }
+/* ---------- tasks that have sat in a stage too long: flag them and ask whether to move them on ---------- */
+const pendingReviews = () => S.tasks.filter(t => t.review && !t.archived && !isDone(t));
+function runStale(){
+  const A = S.settings.automation; let n = trackStages(S.tasks);
+  const found = staleSuggestions(S.tasks, A, todayStr(), S.boards);
+  for (const x of found){
+    const t = x.t, flag = x.rule.flag || '';
+    t.review = { to:x.to, from:x.from, rule:x.rule.id, days:x.days, at:nowISO(), flag, prevFlag:t.flag || '' };
+    if (flag) t.flag = flag;
+    logTask(t, `In ${stageNameOf(t, x.from)} for ${x.days} days: asked whether to move it to ${stageNameOf(t, x.to)}`);
+    t.updated = nowISO(); n++;
+  }
+  if (found.length) ui.reviewAsked = false;
+  if (pendingReviews().length) setTimeout(flushReviews, 0);
+  return n;
+}
+function flushReviews(){
+  if (!S || ui.modal || ui.dragging || ui.pop || ui.quick || ui.reviewAsked || $('#confirmRoot').innerHTML || !pendingReviews().length) return;
+  ui.reviewAsked = true; openReview();
+}
+function openReview(){ closePop(); ui.modal = { type:'review' }; renderModal(); }
+function endReview(t){ const r = t.review; t.review = null; if (r && r.flag && t.flag === r.flag) t.flag = r.prevFlag || ''; }   // take our flag off again, unless it was changed meanwhile
+function reviewMove(id){
+  const t = T(id); if (!t || !t.review) return;
+  const to = t.review.to; endReview(t);
+  if (stagesOf(t.boardId).some(x => x.id === to)) moveTask(id, to, topOrder(to), true);
+}
+function reviewKeep(id){
+  const t = T(id); if (!t || !t.review) return;
+  endReview(t); t.stageAt = nowISO(); logTask(t, `Kept in ${stageNameOf(t, t.status)} after review; the clock starts again`); t.updated = nowISO();
+}
+function afterReview(){
+  save(); render();
+  if (!pendingReviews().length){ closeModal(); toast('All reviewed.', null, 2500); } else renderModal();
+}
+function reviewHTML(){
+  const list = pendingReviews(), today = todayStr();
+  const rows = list.map(t => { const r = t.review, to = stageNameOf(t, r.to), from = stageNameOf(t, t.status), n = daysInStage(t, today);
+    return `<div class="field-row" style="align-items:flex-start;gap:12px"><span style="min-width:0;flex:1"><b style="font-weight:600;display:block;overflow-wrap:anywhere">${esc(t.title)}</b><span class="note">${esc(boardName(t.boardId))} · in ${esc(from)} for ${n} day${n === 1 ? '' : 's'}</span></span>
+      <span class="flex gap-1" style="flex-shrink:0;flex-wrap:wrap;justify-content:flex-end"><button class="btn btn-sm btn-primary" data-act="rv-move" data-id="${t.id}">Move to ${esc(to)}</button><button class="btn btn-sm" data-act="rv-keep" data-id="${t.id}">Keep in ${esc(from)}</button></span></div>`; }).join('');
+  return `<div class="m-back"><div class="m-panel" style="max-width:640px" role="dialog" aria-modal="true" aria-label="Review"><div class="m-head"><h2 class="font-display" style="font-weight:700;font-size:18px;flex:1">${list.length} task${list.length === 1 ? '' : 's'} to review</h2><button class="btn btn-ghost btn-icon" data-act="rv-close" aria-label="Decide later">${ic('x')}</button></div>
+    <div class="m-body single"><p class="note" style="margin-bottom:8px">These have been in their column longer than your automation settings allow. They are flagged until you decide. <b>Keep</b> starts the clock again.</p>${rows || '<p class="note">Nothing to review.</p>'}</div>
+    <div class="m-foot">${list.length > 1 ? `<button class="btn" data-act="rv-move-all">${ic('check-check')}Move all</button>` : ''}<span style="flex:1"></span><button class="btn" data-act="rv-close">Decide later</button></div></div></div>`;
+}
 function runAutomation(){
   const A = S.settings.automation;
-  const od = runOverdueRules() + runDateRules();
+  const od = runOverdueRules() + runDateRules() + runStale();
   const moves = autoMove(S.tasks, A, todayStr(), S.boards), old = autoArchive(S.tasks, A, Date.now(), S.boards);
   if (!moves.length && !old.length){ if (od) save(); return od; }
   if (moves.length){
@@ -572,6 +616,7 @@ function renderSidebar(){
       <div class="side-h"><span>Smart views</span></div>
       <button class="side-row ${f.email ? 'on' : ''}" data-act="f-flag" data-k="email">${ic('mail')}<span style="flex:1">From email</span><span class="count">${S.tasks.filter(isEmail).length}</span></button>
       <button class="side-row ${f.due === 'overdue' ? 'on' : ''}" data-act="f-due" data-v="${f.due === 'overdue' ? 'any' : 'overdue'}">${ic('alert-triangle')}<span style="flex:1">Overdue</span><span class="count">${S.tasks.filter(t => !t.archived && dueState(t, todayStr(), S.boards) === 'overdue').length}</span></button>
+      ${pendingReviews().length ? `<button class="side-row" data-act="review-open">${ic('hourglass')}<span style="flex:1">Needs review</span><span class="count">${pendingReviews().length}</span></button>` : ''}
       <button class="side-row ${f.archived ? 'on' : ''}" data-act="f-flag" data-k="archived">${ic('archive')}<span style="flex:1">Archive</span><span class="count">${S.tasks.filter(t => t.archived).length}</span></button>
     </div>
     ${S.meta.sync.mode !== 'off' ? `<div id="syncChip" class="note truncate" style="padding:6px 8px 0;font-size:11.5px">${esc(syncLabel())}</div>` : ''}
@@ -655,7 +700,8 @@ function statusIcons(t){
     isEmail(t) ? `<span class="ico" title="Created from email">${ic('mail', 'w-3.5 h-3.5')}</span>` : '',
     isSub(t.id) ? `<span class="ico" title="You are subscribed to this task">${ic('rss', 'w-3.5 h-3.5')}</span>` : '',
     t.parentId && T(t.parentId) ? `<span class="ico" title="Subitem of ${esc(T(t.parentId).title)}">${ic('corner-down-right', 'w-3.5 h-3.5')}</span>` : '',
-    auto ? `<span class="ico ico-zap" title="Moved automatically: ${esc(t.autoMoved.why)}">${ic('zap', 'w-3.5 h-3.5')}</span>` : ''
+    auto ? `<span class="ico ico-zap" title="Moved automatically: ${esc(t.autoMoved.why)}">${ic('zap', 'w-3.5 h-3.5')}</span>` : '',
+    t.review ? `<span class="ico" title="Waiting for your review: move to ${esc(stageNameOf(t, t.review.to))}?">${ic('hourglass', 'w-3.5 h-3.5')}</span>` : ''
   ].filter(Boolean).join('');
 }
 /* How much a card shows is the view's "task details" level: 0 title only, 1 adds priority and dates, 2 adds tags, progress and
@@ -1011,11 +1057,12 @@ function renderModal(){
   else if (ui.modal.type === 'ptags') root.innerHTML = ptagsHTML();
   else if (ui.modal.type === 'paste') root.innerHTML = pasteHTML();
   else if (ui.modal.type === 'followup') root.innerHTML = followUpHTML();
+  else if (ui.modal.type === 'review') root.innerHTML = reviewHTML();
   const nb = $('.m-body', root) || $('.bs-body', root); if (nb) nb.scrollTop = top;
   if (id){ const el = document.getElementById(id); if (el){ el.focus(); try{ if (pos != null) el.setSelectionRange(pos, pos); }catch(e){} } }
   icons();
 }
-function closeModal(){ ui.modal = null; $('#modalRoot').innerHTML = ''; setTimeout(flushFollowUps, 0); }
+function closeModal(){ ui.modal = null; $('#modalRoot').innerHTML = ''; setTimeout(flushFollowUps, 0); setTimeout(flushReviews, 50); }
 /* The task editor saves when it closes (X, Esc, clicking outside); only Cancel throws the changes away. */
 function taskDirty(){
   const m = ui.modal; if (!m || m.type !== 'task' || !m.draft) return false;
@@ -1922,6 +1969,9 @@ function settingsHTML(){
       <div style="margin-top:16px"><label class="lbl" for="bgDim">Dim the background: ${Math.round((bg.dim || 0) * 100)}%</label><input id="bgDim" type="range" min="0" max="0.7" step="0.05" value="${bg.dim || 0}" style="width:100%"></div>
       <p class="note" style="margin-top:10px">Uploaded images are resized and stored only in this browser. Panels turn translucent over a background so text stays readable.</p>`;
   } else if (tab === 'automation'){
+    const stOpts = Tools.unionStages(S.boards).filter(x => !x.done);
+    const stageSel = (path, val) => `<select class="inp" style="width:auto;min-width:120px" data-set="${path}" data-type="str" aria-label="Column">${stOpts.map(c => `<option value="${c.key}" ${val === c.key ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}${stOpts.some(c => c.key === val) ? '' : `<option value="${esc(val)}" selected>${esc(val)} (no such column)</option>`}</select>`;
+    const flagSel = (path, val) => `<select class="inp" style="width:auto;min-width:96px" data-set="${path}" data-type="str" aria-label="Flag color"><option value="" ${val ? '' : 'selected'}>No flag</option>${Object.keys(FLAGS).map(k => `<option value="${k}" ${val === k ? 'selected' : ''}>${FLAGS[k].name}</option>`).join('')}</select>`;
     const num = (path, v, min, max) => `<input type="number" class="inp num" data-set="${path}" data-type="num" min="${min}" max="${max}" value="${v}" aria-label="${path}">`;
     body = `<div class="field-row"><div><b style="font-weight:650">Automation</b><p class="note">Checked on load, every 30 seconds and after edits.</p></div>${sw('automation.enabled', A.enabled, 'Automation')}</div>
       <div class="card-box" style="margin-top:12px"><div class="field-row" style="padding-top:0"><div><b style="font-weight:650">Scheduled items follow their start date</b><p class="note">Applies to tasks you place in Scheduled.</p></div>${sw('automation.scheduled', A.scheduled, 'Scheduled rule')}</div>
@@ -1931,6 +1981,8 @@ function settingsHTML(){
         <div class="field-row"><span>Counts as important at importance</span><span class="flex items-center gap-2">${num('automation.urgentMin', A.urgentMin == null ? 8 : A.urgentMin, 1, 10)}<span class="note">or more</span></span></div>
         <div class="field-row"><span>Move to Up Next when due within</span><span class="flex items-center gap-2">${num('automation.urgentDays', A.urgentDays, 0, 30)}<span class="note">days</span></span></div>
         <div class="field-row"><span>Move to Near-Term when due within</span><span class="flex items-center gap-2">${num('automation.soonDays', A.soonDays, 0, 90)}<span class="note">days</span></span></div></div>
+      <div class="card-box" style="margin-top:12px"><div style="margin-bottom:6px"><b style="font-weight:650">Ask about tasks that have sat too long</b><p class="note">When a task has been in a column longer than this, it gets a flag and the app asks whether to move it on. Tasks with a start date still ahead are left alone. Choosing "Keep" starts the clock again.</p></div>
+        ${(A.stale || []).map((r, i) => `<div class="field-row" style="align-items:flex-start;gap:12px"><span class="flex items-center gap-2" style="flex:1;min-width:0;flex-wrap:wrap;row-gap:8px">In ${stageSel(`automation.stale.${i}.from`, r.from)} for more than ${num(`automation.stale.${i}.days`, r.days, 1, 3650)} days, ask to move it to ${stageSel(`automation.stale.${i}.to`, r.to)} and flag it ${flagSel(`automation.stale.${i}.flag`, r.flag)}</span><span style="flex-shrink:0;padding-top:4px">${sw(`automation.stale.${i}.on`, r.on !== false, 'Rule ' + (i + 1))}</span></div>`).join('')}</div>
       <div class="card-box" style="margin-top:12px"><div class="field-row" style="padding:0;border:0"><div style="min-width:0"><b style="font-weight:650">Archive finished tasks</b><p class="note">Done tasks move to the Archive after this many days. 0 turns it off. Archived tasks leave boards, the calendar and reminders, and can be restored from Archive in the sidebar.</p></div><span class="flex items-center gap-2">${num('automation.archiveDays', A.archiveDays || 0, 0, 3650)}<span class="note">days</span></span></div></div>
       <div class="field-row"><div><b style="font-weight:650">Ask about a follow-up</b><p class="note">When you move a task to In Progress, ask when to follow up and create that task.</p></div>${sw('followUp.ask', (s.followUp || {}).ask !== false, 'Ask about a follow-up')}</div>
       <div class="field-row"><div><b style="font-weight:650">Reminder time for date-based reminders</b><p class="note">Used for "1 day before due" style reminders.</p></div><input type="time" class="inp" style="width:120px" data-set="reminderTime" data-type="str" value="${s.reminderTime}"></div>
@@ -2148,6 +2200,11 @@ const ACTIONS = {
   'paste-add'(){ addPastedTasks(); },
   'fu-chip'(el){ ui.modal.date = addDays(todayStr(), +el.dataset.days); renderModal(); },
   'fu-skip'(){ closeModal(); },
+  'review-open'(){ openReview(); },
+  'rv-close'(){ closeModal(); },
+  'rv-move'(el){ reviewMove(el.dataset.id); afterReview(); },
+  'rv-keep'(el){ reviewKeep(el.dataset.id); afterReview(); },
+  'rv-move-all'(){ for (const t of pendingReviews()) reviewMove(t.id); afterReview(); },
   'fu-save'(){ const m = ui.modal; if (!m.date){ toast('Choose a date first.', null, 3000); return; } const { id, name, date, time } = m; closeModal(); createFollowUp(id, name, date, time); },
   'cancel-task'(){ closeModal(); },
   'quick-open'(el){ ui.quick = el.dataset.gid + '|' + (el.dataset.lane || ''); ui.quickFocus = ui.quick; render(); },

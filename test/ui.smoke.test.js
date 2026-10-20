@@ -889,3 +889,59 @@ test('hosted web copy: an expired sign-in is renewed quietly once, and a refusal
   assert.equal(b.w.localStorage.getItem('cos.msauth.pending'), null);
   assert.deepEqual(b.errs, []); b.close();
 });
+
+/* ---------- tasks that sat too long: flag, ask, move or keep ---------- */
+test('stale tasks are flagged and put to the person, who can move them or keep them', { skip }, async () => {
+  const a = await launch(), { d, click, change } = a, bid = S(a).boards[0].id;
+  const ago = n => { const x = new Date(); x.setDate(x.getDate() - n); x.setHours(12, 0, 0, 0); return x.toISOString(); };
+  const add = (title, status, days, extra) => { const t = a.w.CoS.core.newTask(Object.assign({ boardId: bid, title, status, stageAt: ago(days), importance: 3 }, extra || {})); S(a).tasks.push(t); return t; };
+  const old1 = add('Old idea', 'long-term', 45), old2 = add('Other old idea', 'long-term', 40, { flag: 'blue' });
+  const fresh = add('Fresh idea', 'long-term', 10), later = add('Starts later', 'long-term', 80, { start: new Date(Date.now() + 9 * 864e5).toISOString().slice(0, 10) });
+  const near = add('Waiting in near-term', 'near-term', 9);
+  a.api.runAutomation(); await tick(120);
+  // the question appears by itself, naming each task, and the tasks are flagged
+  assert.equal(a.api.ui.modal && a.api.ui.modal.type, 'review', 'review prompt opened');
+  const text = d.querySelector('#modalRoot').textContent;
+  assert.match(text, /3 tasks to review/); assert.match(text, /Old idea/); assert.match(text, /Waiting in near-term/); assert.match(text, /Move to Near-Term/); assert.match(text, /Move to Up Next/);
+  assert.ok(!/Fresh idea|Starts later/.test(text), 'a recent task and one with a future start date are not asked about');
+  assert.equal(old1.flag, 'orange'); assert.equal(old2.flag, 'orange'); assert.ok(old1.review && old1.review.to === 'near-term');
+  // move one
+  click(`[data-act=rv-move][data-id="${old1.id}"]`);
+  assert.equal(old1.status, 'near-term'); assert.equal(old1.flag, '', 'our flag is taken off again'); assert.equal(old1.review, null);
+  // keep one: stays, flag back to what it was, clock restarts
+  click(`[data-act=rv-keep][data-id="${old2.id}"]`);
+  assert.equal(old2.status, 'long-term'); assert.equal(old2.flag, 'blue'); assert.equal(old2.review, null);
+  assert.ok(Date.now() - Date.parse(old2.stageAt) < 5000, 'clock restarted');
+  assert.equal(a.api.ui.modal && a.api.ui.modal.type, 'review', 'one left to decide');
+  // decide later: still flagged, listed in the sidebar, reopens from there, and is not asked again by itself
+  click('[data-act=rv-close]'); await tick(120);
+  assert.equal(a.api.ui.modal, null); assert.equal(near.flag, 'orange');
+  assert.match(d.querySelector('[data-act=review-open]').textContent, /Needs review\s*1/);
+  assert.ok(d.querySelector(`.card[data-id="${near.id}"] .ico`) , 'card shows its status icons');
+  a.api.runAutomation(); await tick(120); assert.equal(a.api.ui.modal, null, 'not nagging again');
+  click('[data-act=review-open]'); click(`[data-act=rv-move][data-id="${near.id}"]`); await tick(80);
+  assert.equal(near.status, 'up-next'); assert.equal(a.api.ui.modal, null, 'closes when everything is decided');
+  assert.equal(d.querySelector('[data-act=review-open]'), null, 'sidebar entry gone');
+  // a task that is moved by hand while waiting is released, with its old flag back
+  const t3 = add('Moved by hand', 'long-term', 50, { flag: 'green' }); a.api.runAutomation(); await tick(50); click('[data-act=rv-close]');
+  assert.equal(t3.flag, 'orange'); t3.status = 'consider'; a.api.runAutomation();
+  assert.equal(t3.review, null); assert.equal(t3.flag, 'green');
+  assert.deepEqual(a.errs, []); a.close();
+});
+
+test('settings: the stale-task rules can be changed, and a longer limit stops the question', { skip }, async () => {
+  const a = await launch(), { d, click, change } = a, bid = S(a).boards[0].id;
+  const ago = n => { const x = new Date(); x.setDate(x.getDate() - n); x.setHours(12, 0, 0, 0); return x.toISOString(); };
+  const t = a.w.CoS.core.newTask({ boardId: bid, title: 'Slow one', status: 'long-term', stageAt: ago(40), importance: 3 }); S(a).tasks.push(t);
+  click('[data-act=settings]'); click('[data-act=set-tab][data-v=automation]');
+  const days = d.querySelector('[data-set="automation.stale.0.days"]'); assert.equal(days.value, '30');
+  assert.equal(d.querySelector('[data-set="automation.stale.0.from"]').value, 'long-term'); assert.equal(d.querySelector('[data-set="automation.stale.0.to"]').value, 'near-term');
+  assert.equal(d.querySelector('[data-set="automation.stale.1.days"]').value, '7');
+  change(days, '60'); await tick(60);
+  assert.equal(S(a).settings.automation.stale[0].days, 60);
+  assert.equal(t.review, null, 'at 40 days it is no longer too long');
+  change(d.querySelector('[data-set="automation.stale.0.to"]'), 'up-next'); change(days, '20'); await tick(60);
+  assert.equal(S(a).settings.automation.stale[0].to, 'up-next');
+  assert.ok(t.review && t.review.to === 'up-next', 'new limit and target take effect');
+  assert.deepEqual(a.errs, []); a.close();
+});

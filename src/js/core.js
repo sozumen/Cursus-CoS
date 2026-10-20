@@ -125,10 +125,12 @@
       id: uid(), boardId:'', projectId:null, title:'', description:'', status:'consider', priority:'medium', importance:null,
       start:'', due:'', estimate:0, tags:[], deps:[], subitems:[], reminder:null, repeat:null, fired:{}, flag:'', parentId:null,
       source:'manual', external:null, order:0, locked:false, scheduledFlow:false, autoMoved:null,
-      archived:false, archivedAt:'', doneAt:'', prevStatus:'',
+      archived:false, archivedAt:'', doneAt:'', prevStatus:'', review:null, stageAt:'', stageId:'',
       assignees:[], attachments:[], comments:[], custom:{},
       created:now, updated:now, log:[]
     }, p);
+    if (!t.stageAt) t.stageAt = t.created;   // when it entered the stage it is in now (kept up to date by trackStages)
+    if (!t.stageId) t.stageId = t.status;
     return syncImp(t);
   }
   function logTask(t, text){ t.log = t.log || []; t.log.push({ at: nowISO(), text }); if (t.log.length > 40) t.log.shift(); }
@@ -173,6 +175,40 @@
       if (target && target !== st && (!tb || tb.stages.some(x => x.id === target))) moves.push({ t, from: st, to: target, why });
     }
     return moves;
+  }
+
+  /* ---------- how long a task has been in its stage ----------
+     trackStages notices a changed stage however it happened (drag, editor, rule, another device) and restarts the clock. */
+  const localDay = iso => { const d = new Date(iso); return isNaN(d) ? '' : fmtISO(d); };
+  const daysInStage = (t, today) => { const d = localDay(t.stageAt); return d ? Math.max(0, diffDays(d, today || todayStr())) : 0; };
+  function trackStages(tasks){
+    let n = 0;
+    for (const t of tasks){
+      if (t.stageId === t.status) continue;
+      t.stageId = t.status; t.stageAt = nowISO(); n++;
+      if (t.review){ const r = t.review; t.review = null; if (r.flag && t.flag === r.flag) t.flag = r.prevFlag || ''; }   // moved on its own: the question no longer applies
+    }
+    return n;
+  }
+  /* Tasks that should now be put to the person: in `from` for more than `days`, no start date still ahead, nothing already pending. */
+  function staleSuggestions(tasks, A, today, boards){
+    const out = [];
+    if (!A || !A.enabled) return out;
+    const rules = (A.stale || []).filter(r => r && r.on !== false);
+    if (!rules.length) return out;
+    for (const t of tasks){
+      if (t.review || isDoneTask(t, boards) || t.archived || isStuckChild(t, tasks)) continue;
+      if (t.start && t.start > today) continue;
+      const b = boardIn(boards, t.boardId), st = b && (b.stages || []).find(x => x.id === t.status);
+      if (!st) continue;
+      const key = stageKey(st.name), days = daysInStage(t, today);
+      const r = rules.find(x => x.from === key && days > x.days);
+      if (!r) continue;
+      const tgt = b.stages.find(x => !x.done && stageKey(x.name) === r.to); if (!tgt || tgt.id === t.status) continue;   // this board has no such stage
+      if (r.to === 'up-next' && isBlocked(t, tasks, boards)) continue;   // an unfinished dependency keeps it back
+      out.push({ t, rule: r, from: t.status, to: tgt.id, days });
+    }
+    return out;
   }
 
   /* ---------- repeating tasks ----------
@@ -259,11 +295,26 @@
   }
 
   /* ---------- settings (device-local) ---------- */
+  /* "Stuck" rules: a task that has sat in a stage for more than `days` days (and has no start date still ahead) is flagged and the
+     person is asked whether to move it on. `from` and `to` are stage keys (the stage name as a slug), so they work on every board. */
+  const STALE_DEFAULT = () => [
+    { id:'stale-long', on:true, from:'long-term', days:30, to:'near-term', flag:'orange' },
+    { id:'stale-near', on:true, from:'near-term', days:7,  to:'up-next',   flag:'orange' }
+  ];
+  const normStale = list => {
+    const out = [], seen = new Set();
+    for (const r of Array.isArray(list) ? list : []){
+      if (!r || typeof r !== 'object' || !r.from || !r.to || r.from === r.to) continue;
+      const id = typeof r.id === 'string' && r.id && !seen.has(r.id) ? r.id : 'stale-' + uid(); seen.add(id);
+      out.push({ id, on: r.on !== false, from: stageKey(r.from), days: Math.max(1, Math.min(3650, Math.round(Number(r.days)) || 30)), to: stageKey(r.to), flag: r.flag === '' || FLAGS[r.flag] ? r.flag : 'orange' });
+    }
+    return out;
+  };
   const emptyFilters = () => ({ status:[], priority:[], tags:[], projects:[], due:'any', blocked:false, reminder:false, hideDone:false, email:false, archived:false });
   const DEFAULTS = () => ({
     theme:'auto', view:'board', colorBy:'status', boardsSel:[], filters:emptyFilters(),
     bg:{ type:'none', value:'', dim:0 }, calStarts:true, reminderTime:'09:00',
-    automation:{ enabled:true, scheduled:true, nearTermDays:7, upNextDays:0, urgent:true, urgentMin:8, urgentDays:2, soonDays:7, archiveDays:0 },
+    automation:{ enabled:true, scheduled:true, nearTermDays:7, upNextDays:0, urgent:true, urgentMin:8, urgentDays:2, soonDays:7, archiveDays:0, stale:STALE_DEFAULT() },
     followUp:{ ask:true }, viewSel:{}, subscribed:[], personalTags:{}, ruleFired:{}, me:'', addons:{ ical:true, colors:true, email:true },
     importMaps:{ zenkit:{ stages:{}, priorities:{} } },
     importPrefs:{ zenkit:{ archiveDays:30, keepStageTag:true, workloadUnit:'hours' } },
@@ -385,6 +436,11 @@
       }
       for (const k of ['start', 'due']) if (t[k] && !/^\d{4}-\d{2}-\d{2}/.test(t[k])) t[k] = '';
       if (t.reminder != null && !isObj(t.reminder)) t.reminder = null;
+      if (t.review != null && !(isObj(t.review) && t.review.to)) t.review = null;
+      if (!t.stageAt && Array.isArray(t.log)){   // older data: the last "Moved A to B" entry, else the creation date (newTask)
+        const mv = t.log.filter(l => l && /^(Auto-moved|Moved) /.test(l.text || '') && !/^Moved to board/.test(l.text || '') && !/^Moved with its parent/.test(l.text || '')).pop();
+        if (mv && Date.parse(mv.at) > 0) { t.stageAt = mv.at; t.stageId = t.status; }
+      }
       if (t.external != null && !isObj(t.external)) t.external = null;
       if (Array.isArray(t.subitems)) t.subitems = t.subitems.filter(isObj);
       if (Array.isArray(t.comments)) t.comments = t.comments.filter(isObj);
@@ -398,7 +454,8 @@
     d.meta.sync = Object.assign(SYNC_DEFAULTS(), d.meta.sync && typeof d.meta.sync === 'object' ? d.meta.sync : {});
     { const def = DEFAULTS();   // a setting of the wrong kind (text where a list belongs, say) falls back to its default
       const fit = (dv, v) => { if (v == null) return dv; if (Array.isArray(dv)) return Array.isArray(v) ? v : dv; if (isObj(dv)){ if (!isObj(v)) return dv; const o = Object.assign({}, v); for (const k of Object.keys(dv)) if (k in o) o[k] = fit(dv[k], o[k]); return o; } return typeof dv === typeof v ? v : dv; };
-      d.settings = merge(def, fit(def, d.settings && typeof d.settings === 'object' ? d.settings : {})); }
+      d.settings = merge(def, fit(def, d.settings && typeof d.settings === 'object' ? d.settings : {}));
+      d.settings.automation.stale = normStale(d.settings.automation.stale); }
     return fixRefs(d);
   }
 
@@ -502,7 +559,7 @@
     SCHEMA, APP, COLS, COL, STAGE_COLORS, MAX_STAGES, stageKey, defaultStages, normalizeStages, doneIdOf, isDoneTask, mapStatus, PRI, IMP_BAND, bandOf, clampImp, impOf, REPEAT_UNITS, addInterval, normRepeat, repeatLabel, nextDates, nextOccurrence, isStuckChild, impColor, impMatch, syncImp, setImp, FLAGS, VIEW_TYPES, BUILTIN_FIELDS, FIELD_TYPES,
     uid, nowISO, clone, pad, fmtISO, parseD, todayStr, addDays, diffDays, merge, hashId,
     newBoard, normalizeBoard, newView, defaultViews, newTask, logTask, isBlocked, dueState, autoMove, reconcileDone, autoArchive, fireTime, parseEst, fmtEst,
-    emptyFilters, DEFAULTS, SYNC_DEFAULTS, normalize, fixRefs, recHash, resetHashes, stampChanges,
+    STALE_DEFAULT, normStale, daysInStage, trackStages, staleSuggestions, emptyFilters, DEFAULTS, SYNC_DEFAULTS, normalize, fixRefs, recHash, resetHashes, stampChanges,
     extractData, isSyncPayload, mergeData, signature, seed
   };
 });
