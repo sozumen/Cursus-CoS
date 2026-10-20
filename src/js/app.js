@@ -4,7 +4,7 @@
 'use strict';
 
 const CoS = window.CoS, Host = CoS.host, Tools = CoS.tools;
-const { COLS, COL, nextOccurrence, nextDates, normRepeat, repeatLabel, isStuckChild, IMP_BAND, bandOf, clampImp, impColor, impMatch, setImp, STAGE_COLORS, MAX_STAGES, stageKey, isDoneTask, doneIdOf, mapStatus, defaultStages, PRI, FLAGS, uid, nowISO, clone, pad, fmtISO, parseD, todayStr, addDays, diffDays, trackStages, staleSuggestions, daysInStage, hashId, newBoard, newView, BUILTIN_FIELDS, FIELD_TYPES, newTask, logTask, isBlocked, dueState, autoMove, autoArchive, reconcileDone, fireTime, parseEst, fmtEst, emptyFilters, normalize, fixRefs, resetHashes, stampChanges, extractData, isSyncPayload, mergeData, signature, seed } = CoS.core;
+const { COLS, COL, nextOccurrence, nextDates, normRepeat, repeatLabel, isStuckChild, IMP_BAND, bandOf, clampImp, impColor, impMatch, setImp, STAGE_COLORS, MAX_STAGES, stageKey, isDoneTask, doneIdOf, mapStatus, defaultStages, PRI, FLAGS, uid, nowISO, clone, pad, fmtISO, parseD, todayStr, addDays, diffDays, trackStages, staleSuggestions, rankOrder, rankScore, urgencyOf, daysInStage, hashId, newBoard, newView, BUILTIN_FIELDS, FIELD_TYPES, newTask, logTask, isBlocked, dueState, autoMove, autoArchive, reconcileDone, fireTime, parseEst, fmtEst, emptyFilters, normalize, fixRefs, resetHashes, stampChanges, extractData, isSyncPayload, mergeData, signature, seed } = CoS.core;
 
 /* ---------- small helpers ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -390,7 +390,7 @@ function checkReminders(){
 /* ---------- mutations ---------- */
 function applyMoves(moves){
   for (const m of moves){
-    m.t.status = m.to; m.t.order = topOrder(m.to); m.t.updated = nowISO();
+    m.t.status = m.to; m.t.order = topOrder(m.to); m.t.pin = null; m.t.updated = nowISO();
     m.t.autoMoved = { at: nowISO(), why: m.why, from: m.from };
     logTask(m.t, `Auto-moved ${stageNameOf(m.t, m.from)} to ${stageNameOf(m.t, m.to)} (${m.why})`);
     followParent(m.t);
@@ -467,6 +467,7 @@ function afterStatus(t, old){
   const wasDone = !!(stagesOf(t.boardId).find(x => x.id === old) || {}).done;
   if (isDone(t) && !wasDone && t.repeat) announceRepeat(spawnRepeat(t, 'completed'));
   if (isDone(t)){
+    t.inProcess = false;
     const freed = S.tasks.filter(x => x.deps.includes(t.id) && !isDone(x) && !isBlocked(x, S.tasks, S.boards));
     if (freed.length) toast(`Unblocked: ${freed.slice(0, 2).map(x => x.title).join(', ')}${freed.length > 2 ? '…' : ''}`, null, 5000);
   } else if (['in-progress', 'review'].includes(t.status) && isBlocked(t, S.tasks, S.boards)){
@@ -474,10 +475,11 @@ function afterStatus(t, old){
     if (b) toast(`Heads up: blocked by "${b.title}"`, null, 5000);
   }
 }
-function moveTask(id, status, order, quiet){
+function moveTask(id, status, order, quiet, pin){
   const t = T(id); if (!t) return;
   const old = t.status;
   if (order != null) t.order = order;
+  if (pin !== undefined) t.pin = pin; else if (status !== old) t.pin = null;   // a hand-placed slot belongs to its column
   if (status !== old){
     unstickChild(t);
     t.status = status; applyManualStatus(t, status);
@@ -687,6 +689,7 @@ function dateChip(t){
   return `<span class="dchip ${cls}">${ic('calendar', 'w-3 h-3')}${esc(label)}</span>`;
 }
 const circleHTML = t => { const on = isDone(t); return `<button type="button" class="cbtn ${on ? 'on' : ''}" data-act="task-done" data-id="${t.id}" aria-pressed="${on}" aria-label="${on ? 'Mark not complete' : 'Mark complete'}: ${esc(t.title)}" title="${on ? 'Completed. Click to reopen.' : 'Mark complete'}">${on ? ic('check', 'w-3 h-3') : ''}</button>`; };
+const procBtnHTML = t => `<button type="button" class="proc-btn ${t.inProcess ? 'on' : ''}" data-act="toggle-proc" data-id="${t.id}" aria-pressed="${!!t.inProcess}" aria-label="${t.inProcess ? 'In process. Click to clear' : 'Mark as in process'}" title="${t.inProcess ? 'In process (click to clear)' : 'Mark as in process: highlights the card without moving it'}">${ic('activity', 'w-4 h-4')}</button>`;
 const menuBtnHTML = id => `<button type="button" class="card-menu" data-act="task-menu" data-id="${id}" aria-label="Task actions" aria-haspopup="menu">${ic('more-horizontal', 'w-4 h-4')}</button>`;
 const titleHTML = (t, cls = 't-title') => ui.rename === t.id
   ? `<input class="t-rename" data-rename="${t.id}" value="${esc(ui.renameVal)}" maxlength="200" aria-label="Task title">`
@@ -708,6 +711,7 @@ function statusIcons(t){
     isEmail(t) ? `<span class="ico" title="Created from email">${ic('mail', 'w-3.5 h-3.5')}</span>` : '',
     isSub(t.id) ? `<span class="ico" title="You are subscribed to this task">${ic('rss', 'w-3.5 h-3.5')}</span>` : '',
     t.parentId && T(t.parentId) ? `<span class="ico" title="Subitem of ${esc(T(t.parentId).title)}">${ic('corner-down-right', 'w-3.5 h-3.5')}</span>` : '',
+    t.pin != null && rankOn() && !isDone(t) ? `<span class="ico" title="Placed by hand, so it stays here. Right-click, Let it rank automatically, to release it.">${ic('pin', 'w-3.5 h-3.5')}</span>` : '',
     auto ? `<span class="ico ico-zap" title="Moved automatically: ${esc(t.autoMoved.why)}">${ic('zap', 'w-3.5 h-3.5')}</span>` : '',
     t.review ? `<span class="ico" title="Waiting for your review: move to ${esc(stageNameOf(t, t.review.to))}?">${ic('hourglass', 'w-3.5 h-3.5')}</span>` : ''
   ].filter(Boolean).join('');
@@ -726,8 +730,8 @@ function cardHTML(t, multi, lv = 2){
   if (lv >= 2 && ((multi && b) || (p && sf('project')))) body += `<div class="meta-row">${multi && b ? `<span class="inline-flex items-center gap-1 truncate"><span class="dot" style="background:${hsl(b.h, 65, 52)};width:7px;height:7px"></span>${esc(b.name)}</span>` : ''}${p && sf('project') ? `<span class="inline-flex items-center gap-1 truncate" style="color:var(--ink-2)">${ic('folder', 'w-3 h-3')}${esc(p.name)}</span>` : ''}</div>`;
   const counts = lv >= 3 ? `${t.attachments.length ? `<span class="ico" title="Attachments">${ic('paperclip', 'w-3.5 h-3.5')}${t.attachments.length}</span>` : ''}${t.comments.length ? `<span class="ico" title="Comments">${ic('message-square', 'w-3.5 h-3.5')}${t.comments.length}</span>` : ''}` : '';
   if (lv >= 2 && (sp || icons || counts || people.length)) body += `<div class="meta-row">${sp ? `<span class="inline-flex items-center gap-1 mono" style="font-size:11px">${ic('list-checks', 'w-3.5 h-3.5')}${sp.d}/${sp.n}</span><span class="sub-bar"><i style="width:${sp.pct}%"></i></span>` : '<span style="flex:1"></span>'}<span class="inline-flex items-center gap-2" style="margin-left:auto">${counts}${icons}${people.length ? `<span class="avatars">${people.slice(0, 3).map(avatar).join('')}${people.length > 3 ? `<span class="avatar more">+${people.length - 3}</span>` : ''}</span>` : ''}</span></div>`;
-  return `<article class="card ${c ? 'tint' : 'plain'} ${blocked ? 'is-blocked' : ''} ${isDone(t) ? 'is-done' : ''}" tabindex="0" data-drag="card" data-id="${t.id}" data-act="open-task" style="${c ? `--h:${c.h};--s:${c.s}` : ''}">
-    <div class="c-top">${circleHTML(t)}${titleHTML(t)}${menuBtnHTML(t.id)}</div>${meta}${body}
+  return `<article class="card ${c ? 'tint' : 'plain'} ${blocked ? 'is-blocked' : ''} ${isDone(t) ? 'is-done' : ''} ${t.inProcess && !isDone(t) ? 'in-proc' : ''}" tabindex="0" data-drag="card" data-id="${t.id}" data-act="open-task" style="${c ? `--h:${c.h};--s:${c.s}` : ''}">
+    <div class="c-top">${circleHTML(t)}${titleHTML(t)}${procBtnHTML(t)}${menuBtnHTML(t.id)}</div>${meta}${body}
   </article>`;
 }
 function quickHTML(gid, lane = ''){
@@ -742,26 +746,32 @@ function aggHTML(items, agg){
   const est = items.reduce((a, t) => a + (t.estimate || 0), 0);
   return `${agg !== 'estimate' ? `<span class="count">${items.length}</span>` : ''}${agg !== 'count' ? `<span class="est mono">${fmtEst(est) || (agg === 'estimate' ? '0m' : '')}</span>` : ''}`;
 }
-const sortFor = (view, items) => view.sort === 'manual' ? items.slice().sort(byOrder) : Tools.sortTasks(items, view.sort, view.sortDir);
+const rankOn = () => !!S.settings.automation && S.settings.automation.rank !== false;
+/* Manual order: cards placed by hand keep their slot (their pin); the rest rank by importance and urgency around them.
+   Done columns keep plain manual order. */
+const sortFor = (view, items, done) => view.sort === 'manual' ? (rankOn() && !done ? rankOrder(items, todayStr()) : items.slice().sort(byOrder)) : Tools.sortTasks(items, view.sort, view.sortDir);
+let colIds = {};   // column key -> task ids in the order shown, for the column Sort button
 function splitBy(def, items){
   const m = new Map(def.groups.map(g => [g.id, []]));
   for (const t of items){ const k = def.keyOf(t); (m.get(k) || m.get(def.groups[0].id)).push(t); }
   return m;
 }
 function colHTML(H, g, items, lane, view, multi, archMode){
-  const lv = view.detail == null ? 2 : view.detail, all = sortFor(view, items), lk = lane + '|' + g.id;
-  const isDoneCol = H.group === 'status' && !!g.done;
+  const lv = view.detail == null ? 2 : view.detail, lk = lane + '|' + g.id;
+  const isDoneCol = H.group === 'status' && !!g.done, all = sortFor(view, items, isDoneCol);
+  colIds[lk] = all.map(t => t.id);
   // Big columns (hundreds of finished tasks, say) show the first batch and a button for the rest.
   const lim = (isDoneCol ? 25 : 100) + (ui.limits[lk] || 0), list = all.slice(0, lim), hidden = all.length - list.length;
   const canAdd = H.editable && !archMode;
   return `<section class="col" data-gid="${esc(g.id)}" data-lane="${esc(lane)}" ${H.group === 'status' ? `data-status="${esc(g.id)}"` : ''} ${H.editable ? '' : 'data-drop="0"'} aria-label="${esc(g.name)}">
-    <div class="col-h"><span class="dot" style="background:${hsl(g.h, Math.max(g.s, 30), 52)}"></span><h3>${esc(g.name)}</h3>${aggHTML(all, view.agg)}${isDoneCol && all.length && !archMode ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="archive-done" aria-label="Archive done tasks" title="Archive done tasks">${ic('archive', 'w-3.5 h-3.5')}</button>` : ''}${canAdd ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="quick-open" data-gid="${esc(g.id)}" data-lane="${esc(lane)}" aria-label="Add a task to ${esc(g.name)}" title="Add a task">${ic('plus', 'w-3.5 h-3.5')}</button>` : ''}</div>
+    <div class="col-h"><span class="dot" style="background:${hsl(g.h, Math.max(g.s, 30), 52)}"></span><h3>${esc(g.name)}</h3>${aggHTML(all, view.agg)}${!isDoneCol && !archMode && view.sort === 'manual' && all.length > 1 ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="col-sort" data-key="${esc(lk)}" aria-label="Sort ${esc(g.name)} by importance and urgency" title="Sort this column: most important and urgent first">${ic('arrow-down-wide-narrow', 'w-3.5 h-3.5')}</button>` : ''}${isDoneCol && all.length && !archMode ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="archive-done" aria-label="Archive done tasks" title="Archive done tasks">${ic('archive', 'w-3.5 h-3.5')}</button>` : ''}${canAdd ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="quick-open" data-gid="${esc(g.id)}" data-lane="${esc(lane)}" aria-label="Add a task to ${esc(g.name)}" title="Add a task">${ic('plus', 'w-3.5 h-3.5')}</button>` : ''}</div>
     <div class="col-body" data-key="${esc(lk)}">${list.map(t => cardHTML(t, multi, lv)).join('')}</div>
     <div class="col-foot">${hidden > 0 ? `<button class="quick-add" data-act="col-more" data-key="${esc(lk)}">${ic('chevrons-down')}Show ${Math.min(50, hidden)} more (${hidden} hidden)</button>` : ''}${canAdd ? quickHTML(g.id, lane) : ''}</div>
   </section>`;
 }
 function kanbanHTML(tasks, view){
   const multi = selBoards().length > 1, archMode = !!S.settings.filters.archived, H = groupFor(view), L = laneFor(view);
+  colIds = {};
   const cols = splitBy(H, tasks);
   if (!L) return `<div class="board" id="boardScroll">${H.groups.map(g => colHTML(H, g, cols.get(g.id), '', view, multi, archMode)).join('')}</div>`;
   const lanes = splitBy(L, tasks), shownLanes = L.groups.filter(g => lanes.get(g.id).length || L.group === 'status');
@@ -779,12 +789,12 @@ function rowHTML(t, multi, lv){
     lv >= 2 && multi && b ? `<span class="inline-flex items-center gap-1"><span class="dot" style="background:${hsl(b.h, 65, 52)};width:7px;height:7px"></span>${esc(b.name)}</span>` : '',
     lv >= 2 && sp ? `<span class="inline-flex items-center gap-1 mono" style="font-size:11px">${ic('list-checks', 'w-3.5 h-3.5')}${sp.d}/${sp.n}</span>` : '',
     lv >= 2 ? statusIcons(t) : '', lv >= 2 && people.length ? `<span class="avatars">${people.slice(0, 3).map(avatar).join('')}</span>` : ''].filter(Boolean).join('');
-  return `<div class="lrow ${c ? 'tint' : 'plain'} ${isDone(t) ? 'is-done' : ''}" tabindex="0" data-id="${t.id}" data-act="open-task" style="${c ? `--h:${c.h};--s:${c.s}` : ''}">
-    ${circleHTML(t)}<div class="lr-main">${titleHTML(t, 'lr-title')}${lv >= 3 && t.description ? `<p class="c-desc">${esc(snippet(t.description, 180))}</p>` : ''}</div><div class="lr-meta">${chips}</div>${menuBtnHTML(t.id)}</div>`;
+  return `<div class="lrow ${c ? 'tint' : 'plain'} ${isDone(t) ? 'is-done' : ''} ${t.inProcess && !isDone(t) ? 'in-proc' : ''}" tabindex="0" data-id="${t.id}" data-act="open-task" style="${c ? `--h:${c.h};--s:${c.s}` : ''}">
+    ${circleHTML(t)}<div class="lr-main">${titleHTML(t, 'lr-title')}${lv >= 3 && t.description ? `<p class="c-desc">${esc(snippet(t.description, 180))}</p>` : ''}</div><div class="lr-meta">${chips}</div>${procBtnHTML(t)}${menuBtnHTML(t.id)}</div>`;
 }
 function listHTML(tasks, view){
   const multi = selBoards().length > 1, lv = view.detail == null ? 2 : view.detail, H = view.group ? groupFor(view) : null;
-  const sections = H ? H.groups.map(g => ({ g, items: sortFor(view, tasks.filter(t => H.keyOf(t) === g.id)) })).filter(s => s.items.length) : [{ g:null, items: sortFor(view, tasks) }];
+  const sections = H ? H.groups.map(g => ({ g, items: sortFor(view, tasks.filter(t => H.keyOf(t) === g.id), H.group === 'status' && !!g.done) })).filter(s => s.items.length) : [{ g:null, items: sortFor(view, tasks) }];
   if (!sections.length || !sections[0].items.length) return `<div class="list-wrap panel"><p class="note" style="padding:28px;text-align:center">No tasks match the current search and filters.</p></div>`;
   return `<div class="list-wrap panel">${sections.map(({ g, items }) => {
     const key = 'list|' + (g ? g.id : ''), off = g && ui.groupsOff[g.id], lim = 100 + (ui.limits[key] || 0), list = items.slice(0, lim), hidden = items.length - list.length;
@@ -1495,6 +1505,7 @@ function renderCtx(){
   let items;
   if (!c.sub){
     items = ctxI('ctx-done', isDone(t) ? 'circle' : 'check-circle-2', isDone(t) ? 'Mark not complete' : 'Mark complete')
+      + ctxI('ctx-proc', 'activity', t.inProcess ? 'Clear in process' : 'Mark in process') + (t.pin != null && rankOn() ? ctxI('ctx-unpin', 'pin', 'Let it rank automatically') : '')
       + ctxI('ctx-rename', 'pencil', 'Rename') + ctxI('ctx-sub', 'layout-dashboard', 'Change Position', '', 'data-sub="position"')
       + '<div class="ctx-sep"></div>' + ctxI('ctx-share', 'external-link', 'Share link') + ctxI('ctx-ptags', 'star', 'Edit personal tags')
       + ctxI('ctx-dup', 'copy', 'Duplicate') + ctxI('ctx-parent', 'corner-down-right', t.parentId && T(t.parentId) ? 'Change parent task…' : 'Make a subtask of…') + ctxI('ctx-sub', 'arrow-right', 'Move Task', '', 'data-sub="move"') + ctxI('ctx-sub', 'copy', 'Copy Task', '', 'data-sub="copy"')
@@ -1544,7 +1555,7 @@ function setGroupValue(t, group, gid){
   }
   return false;
 }
-function dropTo(id, gid, lane, order){
+function dropTo(id, gid, lane, order, pin){
   const t = T(id); if (!t){ render(); return; }
   const v = activeView(), H = groupFor(v), L = laneFor(v); let toStatus = null, changed = [], refused = '';
   const apply = (def, val) => {
@@ -1558,8 +1569,8 @@ function dropTo(id, gid, lane, order){
   };
   apply(L, lane); apply(H, gid);
   if (refused){ toast(refused, null, 4500); render(); return; }
-  if (v.sort === 'manual' && order != null) t.order = order;
-  if (toStatus){ moveTask(id, toStatus, v.sort === 'manual' ? order : null); if (changed.length){ logTask(t, 'Moved to ' + changed.join(', ')); save(); } return; }
+  if (v.sort === 'manual' && order != null){ t.order = order; if (pin != null) t.pin = pin; }
+  if (toStatus){ moveTask(id, toStatus, v.sort === 'manual' ? order : null, false, v.sort === 'manual' && pin != null ? pin : undefined); if (changed.length){ logTask(t, 'Moved to ' + changed.join(', ')); save(); } return; }
   if (changed.length){ logTask(t, 'Moved to ' + changed.join(', ')); if (changed.length && v.group === 'priority') fireRules(t, { type:'priority', value:t.importance }); }
   t.updated = nowISO(); save(); render();
 }
@@ -2016,6 +2027,7 @@ function settingsHTML(){
     const flagSel = (path, val) => `<select class="inp" style="width:auto;min-width:96px" data-set="${path}" data-type="str" aria-label="Flag color"><option value="" ${val ? '' : 'selected'}>No flag</option>${Object.keys(FLAGS).map(k => `<option value="${k}" ${val === k ? 'selected' : ''}>${FLAGS[k].name}</option>`).join('')}</select>`;
     const num = (path, v, min, max) => `<input type="number" class="inp num" data-set="${path}" data-type="num" min="${min}" max="${max}" value="${v}" aria-label="${path}">`;
     body = `<div class="field-row"><div><b style="font-weight:650">Automation</b><p class="note">Checked on load, every 30 seconds and after edits.</p></div>${sw('automation.enabled', A.enabled, 'Automation')}</div>
+      <div class="card-box" style="margin-top:12px"><div class="field-row" style="padding:0;border:0"><div style="min-width:0"><b style="font-weight:650">Rank cards inside a column</b><p class="note">Important and urgent tasks rise to the top (importance and due date count equally). A card you drag into place stays there. Each column has a sort button that clears hand-placed cards and ranks them all.</p></div>${sw('automation.rank', A.rank !== false, 'Rank cards')}</div></div>
       <div class="card-box" style="margin-top:12px"><div class="field-row" style="padding-top:0"><div><b style="font-weight:650">Scheduled items follow their start date</b><p class="note">Applies to tasks you place in Scheduled.</p></div>${sw('automation.scheduled', A.scheduled, 'Scheduled rule')}</div>
         <div class="field-row"><span>Move to Near-Term when start is within</span><span class="flex items-center gap-2">${num('automation.nearTermDays', A.nearTermDays, 0, 90)}<span class="note">days</span></span></div>
         <div class="field-row"><span>Move to Up Next when start is within</span><span class="flex items-center gap-2">${num('automation.upNextDays', A.upNextDays, 0, 30)}<span class="note">days</span></span></div></div>
@@ -2203,8 +2215,9 @@ function dgCleanup(){
 }
 function dgDrop(){
   const kind = DG.p.kind, id = DG.p.id, tgt = DG.target, ph = DG.ph, chip = DG.p.chip;
-  let order = null;
+  let order = null, pin = null;
   if (kind === 'card' && tgt && tgt.gid !== undefined && ph && ph.parentNode){
+    pin = [...ph.parentNode.children].filter(n => n === ph || (n.classList.contains('card') && n !== DG.src)).indexOf(ph);
     const sib = (n, dir) => { while ((n = dir < 0 ? n.previousElementSibling : n.nextElementSibling)){ if (n.classList.contains('card') && n !== DG.src) return n; } return null; };
     const prev = sib(ph, -1), next = sib(ph, 1);
     const a = prev ? T(prev.dataset.id).order : null, b = next ? T(next.dataset.id).order : null;
@@ -2214,7 +2227,7 @@ function dgDrop(){
   DG.justDropped = true; setTimeout(() => { DG.justDropped = false; }, 80);
   if (kind === 'card'){
     if (tgt && tgt.board) changeBoard(id, tgt.board);
-    else if (tgt && tgt.gid !== undefined) dropTo(id, tgt.gid, tgt.lane, order);
+    else if (tgt && tgt.gid !== undefined) dropTo(id, tgt.gid, tgt.lane, order, pin);
     else render();
   } else if (tgt && tgt.date) setTaskDate(id, chip === 'start' ? 'start' : 'due', tgt.date);
   else render();
@@ -2323,6 +2336,20 @@ const ACTIONS = {
   async 'data-save'(){
     const r = await Host.saveFile({ name:`cursus-cos-backup-${todayStr()}.json`, text: JSON.stringify(S, null, 2), mime:'application/json' });
     toast(r.ok ? `Backup saved to ${r.where || 'your device'}.` : 'Saving a file is blocked here. Use Copy backup JSON instead.', null, 4500);
+  },
+  'toggle-proc'(el){
+    const t = T(el.dataset.id); if (!t) return;
+    t.inProcess = !t.inProcess; t.updated = nowISO(); logTask(t, t.inProcess ? 'Marked in process' : 'No longer in process');
+    save(); render();
+  },
+  'col-sort'(el){
+    const ids = (colIds[el.dataset.key] || []).slice(), items = ids.map(T).filter(Boolean);
+    if (items.length < 2) return;
+    const before = items.map(t => [t.id, t.order, t.pin]);
+    const ranked = rankOrder(items.map(t => Object.assign({}, t, { pin:null })), todayStr()).map(x => T(x.id));
+    ranked.forEach((t, i) => { t.order = (i + 1) * 10; t.pin = null; t.updated = nowISO(); });
+    save(); render();
+    toast(`Sorted ${items.length} tasks: most important and urgent first.`, { label:'Undo', fn:() => { for (const [id, o, p] of before){ const t = T(id); if (t){ t.order = o; t.pin = p; } } save(); render(); } }, 6000);
   },
   'sync-now'(){ syncNow(true); },
   async 'od-signin'(){
@@ -2445,6 +2472,8 @@ const ACTIONS = {
   'ctx-share'(){ const id = ui.ctx.id; closeCtx(); copyText(taskLink(id), 'Link copied. Opening it in a browser shows this task.'); },
   'ctx-ptags'(){ openPtags(ui.ctx.id); },
   'ctx-parent'(){ const id = ui.ctx.id; closeCtx(); openTask(id); if (ui.modal && ui.modal.type === 'task') ACTIONS['parent-open'](); },
+  'ctx-proc'(){ const id = ui.ctx.id; closeCtx(); ACTIONS['toggle-proc']({ dataset:{ id } }); },
+  'ctx-unpin'(){ const t = T(ui.ctx.id); closeCtx(); if (t){ t.pin = null; t.updated = nowISO(); save(); render(); toast('It will rank by importance and urgency again.', null, 3000); } },
   'ctx-dup'(){ const id = ui.ctx.id; closeCtx(); const c = duplicateTask(id); render(); if (c) toast('Duplicated.', { label:'Open', fn:() => openTask(c.id) }, 4000); },
   'ctx-subscribe'(){ const id = ui.ctx.id; closeCtx(); toggleSubscribe(id); },
   'ctx-archive'(){ const id = ui.ctx.id; closeCtx(); archiveWithUndo(id); },

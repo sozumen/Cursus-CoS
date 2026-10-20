@@ -996,3 +996,39 @@ test('an existing task can be made a subtask of another, moved to a different pa
   assert.ok(born && born.parentId === B.id && B.subitems.some(s => s.taskId === born.id));
   assert.deepEqual(a.errs, []); a.close();
 });
+
+/* ---------- ranking and "in process" ---------- */
+test('ranking: important and urgent cards rise, a dropped card stays put, the column Sort button re-ranks, In process pulses', { skip }, async () => {
+  const a = await launch(), { d, click } = a, st = S(a);
+  const b0 = st.boards[0].id, today = a.w.CoS.core.todayStr(), plus = n => a.w.CoS.core.addDays(today, n);
+  st.tasks = []; const mk = (title, importance, due, order) => { const t = a.w.CoS.core.newTask({ boardId: b0, title, status: 'consider', importance, due: due || '', order }); st.tasks.push(t); return t; };
+  mk('Low', 2, '', 10); mk('Medium', 5, '', 20); mk('Hot', 9, plus(1), 30); mk('Overdue', 4, plus(-3), 40);
+  st.settings.automation.rank = true; st.sample = false; a.api.render();
+  const col = () => [...d.querySelectorAll('.col[data-gid=consider] .card')].map(c => c.querySelector('.c-title, [class*=title]') ? c.dataset.id : c.dataset.id);
+  const names = () => col().map(id => st.tasks.find(t => t.id === id).title);
+  assert.deepEqual(names(), ['Hot', 'Overdue', 'Medium', 'Low']);
+  // dropped by hand into the top slot: it stays there
+  const low = st.tasks.find(t => t.title === 'Low');
+  a.api.dropTo(low.id, 'consider', '', 5, 0); await tick(10);
+  assert.deepEqual(names(), ['Low', 'Hot', 'Overdue', 'Medium']);
+  assert.equal(st.tasks.find(t => t.title === 'Low').pin, 0);
+  // changing another card's importance re-ranks the rest around the pinned one
+  st.tasks.find(t => t.title === 'Medium').importance = 10; st.tasks.find(t => t.title === 'Medium').priority = 'high'; a.api.render();
+  assert.deepEqual(names(), ['Low', 'Hot', 'Overdue', 'Medium'], 'unpinned cards fill the other slots by score');
+  // the column Sort button clears hand placement and ranks everything
+  click('.col[data-gid=consider] [data-act=col-sort]'); await tick(10);
+  assert.deepEqual(names(), ['Hot', 'Overdue', 'Medium', 'Low']);
+  assert.equal(st.tasks.find(t => t.title === 'Low').pin, null);
+  // undo puts the hand placement back
+  click('#toasts .toast:last-child button'); await tick(10);
+  assert.deepEqual(names()[0], 'Low');
+  // In process: highlights, does not move
+  const before = names(), hot = st.tasks.find(t => t.title === 'Hot');
+  click(`.card[data-id="${hot.id}"] [data-act=toggle-proc]`); await tick(10);
+  assert.ok(d.querySelector(`.card[data-id="${hot.id}"].in-proc`), 'pulsing class');
+  assert.equal(st.tasks.find(t => t.title === 'Hot').status, 'consider'); assert.deepEqual(names(), before);
+  assert.equal(d.querySelector(`.card[data-id="${hot.id}"] .proc-btn`).getAttribute('aria-pressed'), 'true');
+  click(`.card[data-id="${hot.id}"] [data-act=toggle-proc]`); await tick(10);
+  assert.ok(!d.querySelector('.in-proc'));
+  assert.deepEqual(a.errs, []); a.close();
+});

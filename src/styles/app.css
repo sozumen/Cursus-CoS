@@ -312,6 +312,17 @@ code,.codebox{font-family:var(--font-mono);font-size:12px}
 .card:hover .card-menu,.card-menu:focus-visible,.lrow:hover .card-menu,.lrow:focus-within .card-menu{opacity:1}
 .card-menu:hover{background:rgba(127,127,127,.2);color:var(--ink)}
 @media (hover:none){.card-menu{opacity:1}}
+.proc-btn{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;color:var(--muted);flex:none;opacity:0;margin:-2px 0 0 0}
+.card:hover .proc-btn,.proc-btn:focus-visible,.proc-btn.on,.lrow:hover .proc-btn,.lrow:focus-within .proc-btn{opacity:1}
+.proc-btn:hover{background:rgba(127,127,127,.2);color:var(--ink)}
+.proc-btn.on{color:var(--accent)}
+@media (hover:none){.proc-btn{opacity:1}}
+/* In process: a slow pulse that highlights the card without moving it */
+@keyframes procPulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent),var(--shadow)}50%{box-shadow:0 0 0 5px color-mix(in srgb,var(--accent) 0%,transparent),0 0 16px 2px color-mix(in srgb,var(--accent) 45%,transparent)}}
+.in-proc{border-color:var(--accent)!important;animation:procPulse 2.2s ease-in-out infinite}
+.in-proc .proc-btn.on svg{animation:procBeat 2.2s ease-in-out infinite}
+@keyframes procBeat{0%,100%{transform:scale(1)}50%{transform:scale(1.2)}}
+@media (prefers-reduced-motion:reduce){.in-proc,.in-proc .proc-btn.on svg{animation:none}.in-proc{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 45%,transparent),var(--shadow)}}
 .t-rename{font:inherit;font-size:13.5px;font-weight:620;line-height:1.35;background:var(--surface);border:1.5px solid var(--accent);border-radius:7px;padding:1px 6px;outline:0;color:var(--ink);width:100%}
 .c-desc{font-size:12px;color:var(--ink-2);margin-top:6px;line-height:1.4;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .card .meta,.card .meta-row{margin-top:6px}

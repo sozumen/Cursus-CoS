@@ -339,3 +339,10 @@ Your data is never part of the app. It lives in the browser's storage (web), in 
 - Keep the app ID (`com.cursus.cos`) and the OneDrive file name unchanged, or an update would look like a different app.
 
 **Android, later.** An APK only updates in place if every build is signed with the same key, and the key must never be lost or regenerated, or Android refuses the update and the app (with its local data) has to be uninstalled. When you build the first APK, create one keystore, keep a copy somewhere safe, and store it as a GitHub secret so a workflow can sign every build with it. Google Play (internal testing, a one-time $25 developer fee) is the only way Android updates itself without you.
+
+
+## Ranking inside a column, and "In process"
+
+Cards in a column rank themselves: importance (1-10) and urgency (from the due date, overdue highest) count equally, so important and urgent tasks rise to the top. A card you drag into place keeps that slot (a small pin shows on it); the rest rank around it. Right-click a pinned card, **Let it rank automatically**, to release it. Each column has a sort button (arrow icon) that clears hand-placed cards in that column and ranks them all, with Undo. Turn the ranking off in Settings, Automation. It applies to the Manual sort only; choosing another sort order in the view still wins, and Done columns keep plain manual order.
+
+The pulse icon on a card (or **Mark in process** in its menu) highlights it with a slow pulse without moving it. It clears itself when the task is done.

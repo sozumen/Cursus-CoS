@@ -352,3 +352,25 @@ test('stale rules: older data gets its clock from the move history, else the cre
   const m = normalize({ boards: [], projects: [], tasks: [], settings: { automation: { stale: 'oops' } } });
   assert.equal(m.settings.automation.stale.length, 2, 'bad setting falls back to the defaults');
 });
+
+/* ---------- ranking inside a column ---------- */
+test('rank: importance and urgency lift a task; a hand-placed (pinned) one keeps its slot', () => {
+  const T = core.newTask, today = '2026-10-20';
+  assert.equal(core.urgencyOf({ due: '' }, today), 0);
+  assert.equal(core.urgencyOf({ due: '2026-10-19' }, today), 10);
+  assert.ok(core.urgencyOf({ due: '2026-10-21' }, today) > core.urgencyOf({ due: '2026-11-30' }, today));
+  const low = T({ title: 'low', importance: 2, order: 1 }), mid = T({ title: 'mid', importance: 6, order: 2 });
+  const hot = T({ title: 'hot', importance: 9, due: '2026-10-21', order: 3 }), soon = T({ title: 'soon', importance: 4, due: '2026-10-19', order: 4 });
+  assert.deepEqual(core.rankOrder([low, mid, hot, soon], today).map(t => t.title), ['hot', 'soon', 'mid', 'low']);
+  const held = T({ title: 'held', importance: 1, order: 5, pin: 0 });
+  assert.deepEqual(core.rankOrder([low, mid, hot, soon, held], today).map(t => t.title), ['held', 'hot', 'soon', 'mid', 'low'], 'pinned to the top');
+  held.pin = 99;
+  assert.equal(core.rankOrder([low, mid, hot, soon, held], today).pop().title, 'held', 'a slot past the end means last');
+  const a = T({ title: 'a', pin: 1, order: 1 }), b = T({ title: 'b', pin: 1, order: 2 });
+  assert.equal(core.rankOrder([a, b, low], today).length, 3, 'two cards pinned to one slot both keep a place');
+  assert.deepEqual(core.rankOrder([], today), []);
+});
+test('rank: damaged pin / inProcess values are repaired', () => {
+  const d = core.normalize({ tasks: [{ id: 'x', title: 'x', boardId: 'b', pin: 'top', inProcess: 'yes' }], boards: [{ id: 'b', name: 'b' }] });
+  assert.equal(d.tasks[0].pin, null); assert.equal(d.tasks[0].inProcess, false);
+});

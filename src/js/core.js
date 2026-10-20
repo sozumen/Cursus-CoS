@@ -125,7 +125,7 @@
       id: uid(), boardId:'', projectId:null, title:'', description:'', status:'consider', priority:'medium', importance:null,
       start:'', due:'', estimate:0, tags:[], deps:[], subitems:[], reminder:null, repeat:null, fired:{}, flag:'', parentId:null,
       source:'manual', external:null, order:0, locked:false, scheduledFlow:false, autoMoved:null,
-      archived:false, archivedAt:'', doneAt:'', prevStatus:'', review:null, stageAt:'', stageId:'',
+      archived:false, archivedAt:'', doneAt:'', prevStatus:'', review:null, stageAt:'', stageId:'', pin:null, inProcess:false,
       assignees:[], attachments:[], comments:[], custom:{},
       created:now, updated:now, log:[]
     }, p);
@@ -191,6 +191,33 @@
     return n;
   }
   /* Tasks that should now be put to the person: in `from` for more than `days`, no start date still ahead, nothing already pending. */
+  /* ---------- ranking inside a column ----------
+     Urgency comes from the due date (0 none ... 10 overdue). The score weighs importance (1-10) and urgency equally.
+     A task placed by hand has a `pin`: the slot (0 = top) it was dropped into. Everything else is ranked by score and
+     fills the remaining slots, so a pinned card stays where you put it while the rest sort themselves around it. */
+  function urgencyOf(t, today){
+    if (!t.due) return 0;
+    const d = diffDays(today, String(t.due).slice(0, 10));
+    return d < 0 ? 10 : d === 0 ? 9 : d <= 2 ? 8 : d <= 4 ? 7 : d <= 7 ? 6 : d <= 14 ? 4 : d <= 30 ? 2 : 1;
+  }
+  const rankScore = (t, today) => impOf(t) * 5 + urgencyOf(t, today) * 5;
+  function rankOrder(items, today){
+    const key = t => [-rankScore(t, today), t.due || '9999-99-99', t.order || 0];
+    const cmp = (a, b) => { const x = key(a), y = key(b); for (let i = 0; i < 3; i++){ if (x[i] < y[i]) return -1; if (x[i] > y[i]) return 1; } return 0; };
+    const free = items.filter(t => t.pin == null).sort(cmp);
+    const held = items.filter(t => t.pin != null).sort((a, b) => a.pin - b.pin || (a.order || 0) - (b.order || 0));
+    const n = items.length, out = new Array(n).fill(null);
+    for (const t of held){
+      let i = Math.max(0, Math.min(n - 1, Math.round(t.pin)));
+      while (i < n && out[i]) i++;
+      if (i >= n){ i = n - 1; while (i > 0 && out[i]) i--; }
+      out[i] = t;
+    }
+    let k = 0;
+    for (let i = 0; i < n; i++) if (!out[i]) out[i] = free[k++];
+    return out;
+  }
+
   function staleSuggestions(tasks, A, today, boards){
     const out = [];
     if (!A || !A.enabled) return out;
@@ -314,7 +341,7 @@
   const DEFAULTS = () => ({
     theme:'auto', view:'board', colorBy:'status', boardsSel:[], filters:emptyFilters(),
     bg:{ type:'none', value:'', dim:0 }, calStarts:true, reminderTime:'09:00',
-    automation:{ enabled:true, scheduled:true, nearTermDays:7, upNextDays:0, urgent:true, urgentMin:8, urgentDays:2, soonDays:7, archiveDays:0, stale:STALE_DEFAULT() },
+    automation:{ enabled:true, scheduled:true, nearTermDays:7, upNextDays:0, urgent:true, urgentMin:8, urgentDays:2, soonDays:7, archiveDays:0, rank:true, stale:STALE_DEFAULT() },
     followUp:{ ask:true }, viewSel:{}, subscribed:[], personalTags:{}, ruleFired:{}, me:'', addons:{ ical:true, colors:true, email:true },
     importMaps:{ zenkit:{ stages:{}, priorities:{} } },
     importPrefs:{ zenkit:{ archiveDays:30, keepStageTag:true, workloadUnit:'hours' } },
@@ -435,6 +462,7 @@
         if (Array.isArray(def) ? !Array.isArray(v) : typeof def === 'string' ? typeof v !== 'string' : typeof def === 'number' ? typeof v !== 'number' || !isFinite(v) : typeof def === 'boolean' ? typeof v !== 'boolean' : isObj(def) ? !isObj(v) : false) delete t[k];
       }
       for (const k of ['start', 'due']) if (t[k] && !/^\d{4}-\d{2}-\d{2}/.test(t[k])) t[k] = '';
+      if (t.pin != null && !(typeof t.pin === 'number' && isFinite(t.pin))) t.pin = null;
       if (t.reminder != null && !isObj(t.reminder)) t.reminder = null;
       if (t.review != null && !(isObj(t.review) && t.review.to)) t.review = null;
       if (!t.stageAt && Array.isArray(t.log)){   // older data: the last "Moved A to B" entry, else the creation date (newTask)
@@ -559,7 +587,7 @@
     SCHEMA, APP, COLS, COL, STAGE_COLORS, MAX_STAGES, stageKey, defaultStages, normalizeStages, doneIdOf, isDoneTask, mapStatus, PRI, IMP_BAND, bandOf, clampImp, impOf, REPEAT_UNITS, addInterval, normRepeat, repeatLabel, nextDates, nextOccurrence, isStuckChild, impColor, impMatch, syncImp, setImp, FLAGS, VIEW_TYPES, BUILTIN_FIELDS, FIELD_TYPES,
     uid, nowISO, clone, pad, fmtISO, parseD, todayStr, addDays, diffDays, merge, hashId,
     newBoard, normalizeBoard, newView, defaultViews, newTask, logTask, isBlocked, dueState, autoMove, reconcileDone, autoArchive, fireTime, parseEst, fmtEst,
-    STALE_DEFAULT, normStale, daysInStage, trackStages, staleSuggestions, emptyFilters, DEFAULTS, SYNC_DEFAULTS, normalize, fixRefs, recHash, resetHashes, stampChanges,
+    STALE_DEFAULT, normStale, daysInStage, trackStages, staleSuggestions, urgencyOf, rankScore, rankOrder, emptyFilters, DEFAULTS, SYNC_DEFAULTS, normalize, fixRefs, recHash, resetHashes, stampChanges,
     extractData, isSyncPayload, mergeData, signature, seed
   };
 });
