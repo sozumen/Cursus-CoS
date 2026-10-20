@@ -2120,7 +2120,7 @@ function settingsHTML(){
       <p class="note" style="margin-top:6px">Tasks blocked by an unfinished dependency stop at Near-Term. A task you drag by hand is left alone until you change its importance or dates, or switch automation back on in its editor.</p>
       <button class="btn" style="margin-top:12px" data-act="auto-run">${ic('zap')}Run automation now</button>`;
   } else if (tab === 'integrations'){
-    body = gmailCardHTML() + `<div class="card-box" style="margin-top:16px"><div class="flex items-center gap-3"><span style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center">${ic('mail', 'w-5 h-5')}</span><div style="flex:1"><b style="font-weight:650">Microsoft Exchange / Outlook</b><p class="note">Turns flagged or incoming mail into tasks.</p></div><span class="pill" style="font-size:12px;padding:3px 9px;border-radius:99px;background:var(--surface-3)">Not connected</span></div>
+    body = dropMailCardHTML() + '<div style="height:16px"></div>' + gmailCardHTML() + `<div class="card-box" style="margin-top:16px"><div class="flex items-center gap-3"><span style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center">${ic('mail', 'w-5 h-5')}</span><div style="flex:1"><b style="font-weight:650">Microsoft Exchange / Outlook</b><p class="note">Turns flagged or incoming mail into tasks.</p></div><span class="pill" style="font-size:12px;padding:3px 9px;border-radius:99px;background:var(--surface-3)">Not connected</span></div>
       <p class="note" style="margin-top:10px">The mapping layer is built and tested below. A live mailbox connection needs a small relay service that calls Microsoft Graph and hands messages to <code>CoS.api.ingestEmails()</code>, because the web page itself cannot hold a Microsoft sign-in. In the Windows app the poller can run in the app's main process instead.</p></div>
       <div class="sec-h" style="margin-top:18px">Import rules</div>
       <div class="field-row"><span>Target board</span><select class="inp" style="width:190px" data-set="integrations.exchange.targetBoard" data-type="str"><option value="">First selected board</option>${S.boards.map(b => `<option value="${b.id}" ${X.targetBoard === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></div>
@@ -2200,6 +2200,67 @@ function ingestEmails(msgs, adapter = 'exchange'){
   if (added){ runAutomation(); save(); render(); }
   return { added, skipped };
 }
+/* ---------- drag an email in from Outlook onto a task ---------- */
+const dmCfg = () => Object.assign({ as:'subtask' }, S.settings.integrations.dropMail);
+function mailTarget(e){
+  if (e.target.closest && e.target.closest('input,textarea,select,[contenteditable]')) return null;
+  const el = e.target.closest && e.target.closest('[data-act="open-task"][data-id]');
+  if (el && !(ui.modal && ui.modal.type === 'task' && e.target.closest('.m-panel'))) return { id: el.dataset.id, el };
+  if (ui.modal && ui.modal.type === 'task' && e.target.closest && e.target.closest('.m-panel')) return { id: ui.modal.draft.id, el: e.target.closest('.m-panel'), modal: true };
+  return null;
+}
+function addMailsTo(t, mails){
+  const as = dmCfg().as === 'note' ? 'note' : 'subtask', me = S.settings.me || 'You', MF = CoS.mailfile;
+  let added = 0, dups = 0;
+  for (const m of mails){
+    const key = m.id || (m.subject + '|' + m.date);
+    if (as === 'subtask'){
+      if (t.subitems.some(x => x.mail === key)){ dups++; continue; }
+      t.subitems.push({ id: uid(), title: MF.subtaskTitle(m), done: true, taskId: null, stick: false, mail: key });
+    } else {
+      if (t.comments.some(x => x.mail === key)){ dups++; continue; }
+      t.comments.push({ id: uid(), at: nowISO(), by: me, text: MF.noteText(m), mail: key });
+    }
+    logTask(t, `Email "${clipStr(m.subject, 60)}" added as ${as === 'subtask' ? 'a completed subtask' : 'a note'}`); added++;
+  }
+  return { added, dups, as };
+}
+const clipStr = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s;
+async function dropMails(tgt, files, text){
+  const mails = []; let bad = 0;
+  for (const f of files){
+    if (f.size > 30e6){ bad++; continue; }
+    try{ const m = CoS.mailfile.parse(f.name, new Uint8Array(await f.arrayBuffer())); if (m) mails.push(m); else bad++; }catch(e){ bad++; }
+  }
+  if (!files.length && text){ const m = CoS.mailfile.fromText(text); if (m) mails.push(m); }
+  if (!mails.length){ toast(files.length ? 'That file is not an email I can read. In Outlook, drag the message itself.' : 'Nothing readable came across. In Outlook, drag the message itself.'); return; }
+  let t = tgt.modal ? (ui.modal && ui.modal.type === 'task' ? ui.modal.draft : null) : T(tgt.id);
+  if (!t){ toast('That task is no longer there.'); return; }
+  const r = addMailsTo(t, mails);
+  if (r.added){
+    if (tgt.modal) commitAndRefresh(); else { t.updated = nowISO(); runAutomation(); save(); render(); }
+  }
+  const word = r.as === 'subtask' ? (r.added === 1 ? 'a completed subtask' : 'completed subtasks') : (r.added === 1 ? 'a note' : 'notes');
+  toast((r.added ? `Added ${r.added === 1 ? 'the email' : r.added + ' emails'} to "${clipStr(t.title || 'this task', 40)}" as ${word}.` : 'That email is already on this task.') + (bad ? ` ${bad} file${bad > 1 ? 's' : ''} could not be read.` : ''));
+}
+let mailHot = null;
+const hotMail = el => { if (mailHot === el) return; if (mailHot) mailHot.classList.remove('mail-hot'); mailHot = el; if (el) el.classList.add('mail-hot'); };
+const dragHasMail = e => { const ty = Array.from((e.dataTransfer && e.dataTransfer.types) || []); return ty.includes('Files') || ty.includes('text/plain') || ty.includes('text/html'); };
+document.addEventListener('dragover', e => {
+  if (!dragHasMail(e) || ui.dragging) return;
+  const tgt = mailTarget(e); if (e.dataTransfer.types.includes('Files') || tgt) e.preventDefault();   // never let a dropped file navigate the window
+  if (tgt){ e.dataTransfer.dropEffect = 'copy'; hotMail(tgt.el); } else hotMail(null);
+});
+document.addEventListener('dragleave', e => { if (!e.relatedTarget) hotMail(null); });
+document.addEventListener('drop', e => {
+  if (!dragHasMail(e) || ui.dragging) return;
+  const isFile = e.dataTransfer.types.includes('Files'), tgt = mailTarget(e); hotMail(null);
+  if (!tgt){ if (isFile){ e.preventDefault(); toast('Drop the email onto a task to add it.'); } return; }
+  e.preventDefault();
+  const files = Array.from(e.dataTransfer.files || []), text = e.dataTransfer.getData('text/plain') || '';   // read now: the browser empties these after this handler
+  dropMails(tgt, files, text);
+});
+
 /* ---------- Android: tell the person when a newer APK is on GitHub (a sideloaded app cannot update itself) ---------- */
 const APK_URL = 'https://github.com/sozumen/Cursus-CoS/releases/download/android/Cursus-CoS.apk';
 async function checkAppUpdate(manual){
@@ -2266,6 +2327,12 @@ async function gmailPoll(manual){
   ui.gm.busy = false; save(); gmRefresh();
 }
 function gmRefresh(){ if (ui.modal && ui.modal.type === 'settings' && ui.settingsTab === 'integrations') renderModal(); }
+function dropMailCardHTML(){
+  const c = dmCfg();
+  return `<div class="card-box"><div class="flex items-center gap-3"><span style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center">${ic('mail-plus', 'w-5 h-5')}</span><div style="flex:1"><b style="font-weight:650">Drag an email onto a task</b><p class="note">In Outlook, drag a message onto a card, a row or an open task. It is saved there as:</p></div></div>
+    <div class="field-row"><span>Saved as</span><select class="inp" style="width:230px" data-set="integrations.dropMail.as" data-type="str"><option value="subtask" ${c.as !== 'note' ? 'selected' : ''}>A completed subtask</option><option value="note" ${c.as === 'note' ? 'selected' : ''}>A note (comment) with the message text</option></select></div>
+    <p class="note" style="margin-top:6px">The same email dropped twice is added once. Works with the Outlook desktop app; if a drop is not recognised, tell me what Outlook version you use.</p></div>`;
+}
 function gmailCardHTML(){
   const c = gmCfg(), g = ui.gm, st = g.status, desk = !!Host.loopback;
   if (!st && desk) GM.status().then(x => { ui.gm.status = x; gmRefresh(); });

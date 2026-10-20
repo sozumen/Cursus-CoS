@@ -336,6 +336,12 @@ Your data is never part of the app. It lives in the browser's storage (web), in 
 **Android key.** An APK only updates in place if every build is signed with the same key. If the key is lost or regenerated, Android refuses the update and the app (with its local data) must be uninstalled; the OneDrive copy keeps the data safe. Google Play is the only way Android updates itself without you.
 
 
+## Drag an email onto a task
+
+In Outlook, drag a message onto a card, a list or table row, a calendar chip, or an open task. It is saved there as a **completed subtask** (`Email: Subject (Sender, Date)`) or, if you prefer, a **note** (a comment holding the sender, date and message text). Choose in Settings, Email, "Drag an email onto a task". The same email dropped twice is added once.
+
+How it works: Outlook hands the browser the message as a `.msg` file; `src/js/mailfile.js` reads it (and `.eml`, and plain text as a fallback). It runs on the Windows app and in a browser. Tests use small `.msg` files in `test/fixtures` made by `scripts/make-test-msg.py` and cross-checked against two independent readers.
+
 ## Ranking inside a column, and "In process"
 
 Cards in a column rank themselves: importance (1-10) and urgency (from the due date, overdue highest) count equally, so important and urgent tasks rise to the top. A card you drag into place keeps that slot (a small pin shows on it); the rest rank around it. Right-click a pinned card, **Let it rank automatically**, to release it. Each column has a sort button (arrow icon) that clears hand-placed cards in that column and ranks them all, with Undo. Turn the ranking off in Settings, Automation. It applies to the Manual sort only; choosing another sort order in the view still wins, and Done columns keep plain manual order.

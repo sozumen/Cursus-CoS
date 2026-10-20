@@ -461,3 +461,5 @@ code,.codebox{font-family:var(--font-mono);font-size:12px}
 .paste-row:last-child{border-bottom:0}
 .paste-box{width:16px;height:16px;border-radius:5px;border:1.5px solid var(--line-strong);display:inline-grid;place-items:center;flex:none}
 .paste-box.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+
+.mail-hot{outline:2px dashed var(--accent);outline-offset:-2px;background-image:linear-gradient(var(--accent-soft),var(--accent-soft))}

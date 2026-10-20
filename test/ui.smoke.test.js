@@ -1146,3 +1146,54 @@ test('Gmail: the web page explains it needs the Windows app', { skip }, async ()
   const a = await launch(); a.api.ui.settingsTab = 'integrations'; a.click('[data-act=settings]'); a.click('[data-act=set-tab][data-v=integrations]'); await tick(30);
   assert.match(a.d.querySelector('#modalRoot').textContent, /Gmail connects in the Windows app/); assert.ok(!a.d.querySelector('#gmClient')); a.close();
 });
+
+/* ---------- drag an Outlook email onto a task ---------- */
+function fakeDrop(a, el, { files = [], text = '', types } = {}){
+  const w = a.w, ev = new w.Event('drop', { bubbles: true, cancelable: true });
+  const dt = { types: types || [files.length ? 'Files' : 'text/plain'], files, dropEffect: '', getData: t => (t === 'text/plain' ? text : '') };
+  Object.defineProperty(ev, 'dataTransfer', { value: dt });
+  el.dispatchEvent(ev); return ev;
+}
+const msgFile = (name = 'mail-unicode.msg') => { const b = fs.readFileSync(path.join(__dirname, 'fixtures', name)); return { name, size: b.length, arrayBuffer: async () => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) }; };
+
+test('Outlook drop: .msg on a card becomes a completed subtask once; a note when the setting says so; unreadable files say so', { skip }, async () => {
+  const a = await launch(w => { w.TextDecoder = TextDecoder; }), { d } = a;
+  const card = firstCard(a, '.col:not([data-status=done]) .card'), id = card.dataset.id, t = () => S(a).tasks.find(x => x.id === id);
+  const n0 = t().subitems.length;
+  const ev = fakeDrop(a, card, { files: [msgFile()] }); assert.equal(ev.defaultPrevented, true);
+  await tick(60);
+  const added = t().subitems.slice(n0);
+  assert.equal(added.length, 1); assert.equal(added[0].done, true);
+  assert.equal(added[0].title, 'Email: Re: Acme quote – final numbers (Dana Reyes, Oct 14, 2026)');
+  assert.match(d.querySelector('#toasts').textContent, /completed subtask/);
+  fakeDrop(a, d.querySelector(`.card[data-id="${id}"]`), { files: [msgFile()] }); await tick(60);
+  assert.equal(t().subitems.length, n0 + 1, 'same email twice adds once');
+  assert.match(d.querySelector('#toasts').textContent, /already on this task/);
+  // note mode
+  S(a).settings.integrations.dropMail.as = 'note'; const c0 = t().comments.length;
+  fakeDrop(a, d.querySelector(`.card[data-id="${id}"]`), { files: [msgFile('mail-ansi-big.msg')] }); await tick(60);
+  assert.equal(t().comments.length, c0 + 1); assert.match(t().comments[c0].text, /^Email: Weekly status\nFrom: Sam Ortiz <sam@northwind\.example>/);
+  assert.equal(t().subitems.length, n0 + 1);
+  // junk file
+  fakeDrop(a, d.querySelector(`.card[data-id="${id}"]`), { files: [{ name: 'x.png', size: 4, arrayBuffer: async () => new Uint8Array([1, 2, 3, 4]).buffer }] }); await tick(60);
+  assert.match(d.querySelector('#toasts').textContent, /not an email I can read/);
+  // dropping on empty space still blocks navigation
+  const ev2 = fakeDrop(a, d.body, { files: [msgFile()] }); assert.equal(ev2.defaultPrevented, true);
+  assert.deepEqual(a.errs, []); a.close();
+});
+
+test('Outlook drop: onto an open task, dropped text, and the setting is in Settings', { skip }, async () => {
+  const a = await launch(w => { w.TextDecoder = TextDecoder; }), { d, click } = a;
+  const id = firstCard(a, '.col:not([data-status=done]) .card').dataset.id;
+  a.api.openTask(id); await tick(30);
+  const panel = d.querySelector('#modalRoot .m-panel'); assert.ok(panel);
+  fakeDrop(a, panel, { text: 'From: Pat <pat@x.example>\nSent: Monday, October 13, 2026 9:15 AM\nSubject: Budget\n\nNumbers' }); await tick(60);
+  assert.ok(S(a).tasks.find(x => x.id === id).subitems.some(s => /^Email: Budget \(Pat, Oct 13, 2026\)$/.test(s.title) && s.done));
+  assert.ok([...d.querySelectorAll('#modalRoot input[data-sub]')].some(i => /Email: Budget/.test(i.value)), 'the open editor shows it');
+  a.api.ui.modal = null; a.api.render();
+  click('[data-act=settings]'); click('[data-act=set-tab][data-v=integrations]'); await tick(30);
+  assert.match(d.querySelector('#modalRoot').textContent, /Drag an email onto a task/);
+  const sel = d.querySelector('select[data-set="integrations.dropMail.as"]'); assert.ok(sel);
+  a.change(sel, 'note'); assert.equal(S(a).settings.integrations.dropMail.as, 'note');
+  assert.deepEqual(a.errs, []); a.close();
+});
