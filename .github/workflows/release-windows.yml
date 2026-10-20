@@ -13,6 +13,7 @@ on:
       - 'build/**'
       - 'package.json'
       - 'tailwind.config.js'
+      - '.github/workflows/release-windows.yml'
   workflow_dispatch:
 
 permissions:
@@ -38,6 +39,17 @@ jobs:
         run: npm pkg set version=1.0.${{ github.run_number }}
       - run: node scripts/build.mjs
       - name: Build installer and publish release
-        run: npx electron-builder --win nsis --publish always
+        shell: bash
+        run: |
+          set +e
+          npx electron-builder --win nsis --publish always > build.log 2>&1
+          code=$?
+          cat build.log
+          if [ $code -ne 0 ]; then
+            # also put the end of the log in a visible message, so a failure can be read without opening the full log
+            msg=$(tail -n 30 build.log | tr '\r' ' ' | cut -c1-300 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=electron-builder failed (exit $code)::$msg"
+            exit $code
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
