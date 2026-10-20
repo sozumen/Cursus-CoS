@@ -2230,10 +2230,10 @@ async function dropMails(tgt, files, text){
   const mails = []; let bad = 0;
   for (const f of files){
     if (f.size > 30e6){ bad++; continue; }
-    try{ const m = CoS.mailfile.parse(f.name, new Uint8Array(await f.arrayBuffer())); if (m) mails.push(m); else bad++; }catch(e){ bad++; }
+    try{ const m = CoS.mailfile.parse(f.name, new Uint8Array(await f.arrayBuffer())); if (m) mails.push(m); else { bad++; ui.lastDrop += ' | ' + f.name + ': not recognised as an email'; } }catch(e){ bad++; ui.lastDrop += ' | ' + f.name + ': ' + (e && e.message); }
   }
   if (!files.length && text){ const m = CoS.mailfile.fromText(text); if (m) mails.push(m); }
-  if (!mails.length){ toast(files.length ? 'That file is not an email I can read. In Outlook, drag the message itself.' : 'Nothing readable came across. In Outlook, drag the message itself.'); return; }
+  if (!mails.length){ toast((files.length ? 'That file is not an email I can read. ' : 'Nothing readable came across from that drag. ') + 'Open Settings, Email to see exactly what arrived, and send it to the developer.', null, 15000); return; }
   let t = tgt.modal ? (ui.modal && ui.modal.type === 'task' ? ui.modal.draft : null) : T(tgt.id);
   if (!t){ toast('That task is no longer there.'); return; }
   const r = addMailsTo(t, mails);
@@ -2245,7 +2245,7 @@ async function dropMails(tgt, files, text){
 }
 let mailHot = null;
 const hotMail = el => { if (mailHot === el) return; if (mailHot) mailHot.classList.remove('mail-hot'); mailHot = el; if (el) el.classList.add('mail-hot'); };
-const dragHasMail = e => { const ty = Array.from((e.dataTransfer && e.dataTransfer.types) || []); return ty.includes('Files') || ty.includes('text/plain') || ty.includes('text/html'); };
+const dragHasMail = e => !!(e.dataTransfer && Array.from(e.dataTransfer.types || []).length);   // Outlook may offer only its own formats, so accept any outside drag
 document.addEventListener('dragover', e => {
   if (!dragHasMail(e) || ui.dragging) return;
   const tgt = mailTarget(e); if (e.dataTransfer.types.includes('Files') || tgt) e.preventDefault();   // never let a dropped file navigate the window
@@ -2255,10 +2255,13 @@ document.addEventListener('dragleave', e => { if (!e.relatedTarget) hotMail(null
 document.addEventListener('drop', e => {
   if (!dragHasMail(e) || ui.dragging) return;
   const isFile = e.dataTransfer.types.includes('Files'), tgt = mailTarget(e); hotMail(null);
-  if (!tgt){ if (isFile){ e.preventDefault(); toast('Drop the email onto a task to add it.'); } return; }
+  if (!tgt){ if (isFile){ e.preventDefault(); ui.lastDrop = `dropped outside any task; types=[${Array.from(e.dataTransfer.types).join(', ')}]`; toast('Drop the email onto a task to add it.'); } return; }
   e.preventDefault();
-  const files = Array.from(e.dataTransfer.files || []), text = e.dataTransfer.getData('text/plain') || '';   // read now: the browser empties these after this handler
-  dropMails(tgt, files, text);
+  const dt = e.dataTransfer, files = Array.from(dt.files || []);   // read now: the browser empties these after this handler
+  const text = dt.getData('text/plain') || '', html = dt.getData('text/html') || '', uri = dt.getData('text/uri-list') || '';
+  const items = Array.from(dt.items || []).map(i => `${i.kind}:${i.type || '?'}`);
+  ui.lastDrop = `types=[${Array.from(dt.types).join(', ')}] files=[${files.map(f => f.name + ' ' + f.size + 'B').join('; ')}] items=[${items.join(', ')}] text=${text.length} chars html=${html.length} chars uri=${uri.slice(0, 80)}`;
+  dropMails(tgt, files, text || (html ? CoS.mailfile.htmlToText(html) : '') || uri);
 });
 
 /* ---------- Android: tell the person when a newer APK is on GitHub (a sideloaded app cannot update itself) ---------- */
@@ -2331,6 +2334,7 @@ function dropMailCardHTML(){
   const c = dmCfg();
   return `<div class="card-box"><div class="flex items-center gap-3"><span style="width:38px;height:38px;border-radius:10px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center">${ic('mail-plus', 'w-5 h-5')}</span><div style="flex:1"><b style="font-weight:650">Drag an email onto a task</b><p class="note">In Outlook, drag a message onto a card, a row or an open task. It is saved there as:</p></div></div>
     <div class="field-row"><span>Saved as</span><select class="inp" style="width:230px" data-set="integrations.dropMail.as" data-type="str"><option value="subtask" ${c.as !== 'note' ? 'selected' : ''}>A completed subtask</option><option value="note" ${c.as === 'note' ? 'selected' : ''}>A note (comment) with the message text</option></select></div>
+    ${ui.lastDrop ? `<p class="note mono" style="margin-top:8px;word-break:break-all;user-select:text">Last drop received: ${esc(ui.lastDrop)}</p>` : ''}
     <p class="note" style="margin-top:6px">The same email dropped twice is added once. Works with the Outlook desktop app; if a drop is not recognised, tell me what Outlook version you use.</p></div>`;
 }
 function gmailCardHTML(){
