@@ -134,15 +134,9 @@ handle('kv:set', async (key, value) => { await writeAtomic(kvFile(key), String(v
 handle('kv:remove', async key => { try{ await fsp.unlink(kvFile(key)); }catch(e){} });
 /* HTTPS requests for OneDrive sign-in and sync, made here so the page is not subject to browser cross-origin rules.
    Only Microsoft hosts are allowed. */
-const NET_HOSTS = ['microsoftonline.com', 'microsoft.com', 'microsoftpersonalcontent.com', '1drv.com', '1drv.ms', 'sharepoint.com', 'onedrive.com', 'live.com', 'svc.ms'];
-handle('net:fetch', async ({ url, method, headers, body }) => {
-  const u = new URL(String(url));
-  if (u.protocol !== 'https:' || !NET_HOSTS.some(h => u.hostname === h || u.hostname.endsWith('.' + h))) throw new Error('That address is not allowed.');
-  const doFetch = net && net.fetch ? net.fetch.bind(net) : fetch;
-  const r = await doFetch(u.href, { method: String(method || 'GET'), headers: headers || {}, body: body == null ? undefined : String(body), redirect: 'follow' });
-  const h = {}; r.headers.forEach((v, k) => { h[k] = v; });
-  return { status: r.status, headers: h, text: await r.text() };
-});
+const NET_HOSTS = ['microsoftonline.com', 'microsoft.com', 'microsoftpersonalcontent.com', '1drv.com', '1drv.ms', 'sharepoint.com', 'onedrive.com', 'live.com', 'svc.ms', 'livefilestore.com', 'microsoftusercontent.com'];
+const netFetch = require('./netfetch.js').create(net, u => u.protocol === 'https:' && NET_HOSTS.some(h => u.hostname === h || u.hostname.endsWith('.' + h)));
+handle('net:fetch', async ({ url, method, headers, body }) => netFetch({ url, method, headers, body }));
 handle('log:write', async text => { logCrash('page', String(text)); });
 handle('app:info', async () => ({ platform: 'desktop', os: process.platform, version: app.getVersion(), dataPath: dataDir() }));
 handle('reminders:set', async list => { reminders = Array.isArray(list) ? list.filter(r => r && Number.isFinite(r.at)) : []; checkReminders(); });
