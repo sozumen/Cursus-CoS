@@ -41,3 +41,12 @@ test('subtask line and note text', () => {
   assert.equal(M.subtaskTitle(m), 'Email: Re: Acme quote – final numbers (Dana Reyes, Oct 14, 2026)');
   assert.match(M.noteText(m), /^Email: Re: Acme quote[\s\S]*From: Dana Reyes <dana\.reyes@acme\.example>[\s\S]*Date: Oct 14, 2026\n\nHi Jon/);
 });
+test('new Outlook drag parts: finds the fields in JSON under varied spellings', () => {
+  const a = M.fromParts({ maillistitempart: JSON.stringify({ items: [{ ItemId: 'AAMk123', Subject: 'Lunch Friday?', From: { EmailAddress: { Name: 'Kim Ng', Address: 'kim@x.example' } }, DateTimeReceived: '2026-10-19T14:05:00Z', Preview: 'Are you free at noon?' }] }) });
+  assert.equal(a.subject, 'Lunch Friday?'); assert.equal(a.from, 'Kim Ng'); assert.equal(a.fromAddr, 'kim@x.example');
+  assert.equal(a.date, '2026-10-19T14:05:00.000Z'); assert.equal(a.body, 'Are you free at noon?'); assert.equal(a.id, 'AAMk123');
+  const b = M.fromParts({ x: encodeURIComponent(JSON.stringify([{ subject: 'Hi', sender: 'Lee <lee@y.example>', id: 7 }])) });
+  assert.equal(b.subject, 'Hi'); assert.equal(b.id, '7');
+  assert.equal(M.fromParts({ x: 'not json at all' }), null);
+  assert.equal(M.fromParts({}), null);
+});

@@ -2226,13 +2226,14 @@ function addMailsTo(t, mails){
   return { added, dups, as };
 }
 const clipStr = (s, n) => s.length > n ? s.slice(0, n - 1) + '…' : s;
-async function dropMails(tgt, files, text){
+async function dropMails(tgt, files, text, parts){
   const mails = []; let bad = 0;
   for (const f of files){
     if (f.size > 30e6){ bad++; continue; }
     try{ const m = CoS.mailfile.parse(f.name, new Uint8Array(await f.arrayBuffer())); if (m) mails.push(m); else { bad++; ui.lastDrop += ' | ' + f.name + ': not recognised as an email'; } }catch(e){ bad++; ui.lastDrop += ' | ' + f.name + ': ' + (e && e.message); }
   }
-  if (!files.length && text){ const m = CoS.mailfile.fromText(text); if (m) mails.push(m); }
+  if (!files.length && parts){ let m = null; try{ m = CoS.mailfile.fromParts(parts); }catch(e){} if (m) mails.push(m); }
+  if (!files.length && !mails.length && text){ const m = CoS.mailfile.fromText(text); if (m) mails.push(m); }
   if (!mails.length){ toast((files.length ? 'That file is not an email I can read. ' : 'Nothing readable came across from that drag. ') + 'Open Settings, Email to see exactly what arrived, and send it to the developer.', null, 15000); return; }
   let t = tgt.modal ? (ui.modal && ui.modal.type === 'task' ? ui.modal.draft : null) : T(tgt.id);
   if (!t){ toast('That task is no longer there.'); return; }
@@ -2260,8 +2261,10 @@ document.addEventListener('drop', e => {
   const dt = e.dataTransfer, files = Array.from(dt.files || []);   // read now: the browser empties these after this handler
   const text = dt.getData('text/plain') || '', html = dt.getData('text/html') || '', uri = dt.getData('text/uri-list') || '';
   const items = Array.from(dt.items || []).map(i => `${i.kind}:${i.type || '?'}`);
-  ui.lastDrop = `types=[${Array.from(dt.types).join(', ')}] files=[${files.map(f => f.name + ' ' + f.size + 'B').join('; ')}] items=[${items.join(', ')}] text=${text.length} chars html=${html.length} chars uri=${uri.slice(0, 80)}`;
-  dropMails(tgt, files, text || (html ? CoS.mailfile.htmlToText(html) : '') || uri);
+  const parts = {}; for (const ty of Array.from(dt.types)){ if (ty === 'Files' || /^text\/(plain|html|uri-list)$/.test(ty) || ty === 'chromium/x-drag-id') continue; try{ const v = dt.getData(ty); if (v) parts[ty] = v; }catch(e){} }
+  const partsDump = Object.entries(parts).map(([k, v]) => `${k}(${v.length}): ${v.slice(0, 900).replace(/\s+/g, ' ')}`).join(' || ');
+  ui.lastDrop = `types=[${Array.from(dt.types).join(', ')}] files=[${files.map(f => f.name + ' ' + f.size + 'B').join('; ')}] items=[${items.join(', ')}] text=${text.length} chars html=${html.length} chars uri=${uri.slice(0, 80)} parts=${partsDump || 'none'}`;
+  dropMails(tgt, files, text || (html ? CoS.mailfile.htmlToText(html) : '') || uri, parts);
 });
 
 /* ---------- Android: tell the person when a newer APK is on GitHub (a sideloaded app cannot update itself) ---------- */

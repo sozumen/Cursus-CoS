@@ -204,9 +204,49 @@
     return { subject: hd.subject || clip(first.replace(/^https?:\/\/\S+$/, 'Linked email'), 120), from: fromRaw.replace(/<[^>]*>/g, '').trim(), fromAddr: addrOf(fromRaw), date, body: t, id: '' };
   }
 
+  /* New Outlook offers a dragged message as its own string formats (for example "maillistitempart"), usually JSON.
+     We do not know the exact shape, so look through whatever arrives for the usual fields, under any spelling. */
+  function fromParts(parts){
+    const objs = [];
+    const collect = (v, d) => {
+      if (d > 6 || v == null) return;
+      if (typeof v === 'string'){
+        const t = v.trim();
+        if (/^[\[{]/.test(t)){ try{ collect(JSON.parse(t), d + 1); return; }catch(e){} }
+        if (/^%7B|^%5B/i.test(t)){ try{ collect(JSON.parse(decodeURIComponent(t)), d + 1); return; }catch(e){} }
+        return;
+      }
+      if (Array.isArray(v)){ v.forEach(x => collect(x, d + 1)); return; }
+      if (typeof v === 'object'){ objs.push(v); Object.values(v).forEach(x => collect(x, d + 1)); }
+    };
+    Object.values(parts || {}).forEach(v => collect(v, 0));
+    const find = (names, pick) => {
+      const want = names.map(n => n.toLowerCase());
+      for (const n of want) for (const o of objs) for (const k of Object.keys(o)) if (k.toLowerCase() === n){ const r = pick(o[k]); if (r) return r; }
+      return '';
+    };
+    const str = v => (typeof v === 'string' && v.trim() ? v.trim() : '');
+    const ci = (o, ...names) => { for (const n of names) for (const k of Object.keys(o || {})) if (k.toLowerCase() === n && typeof o[k] === 'string' && o[k].trim()) return o[k].trim(); return ''; };
+    const person = v => {
+      if (typeof v === 'string'){ const a = addrOf(v); return { name: v.replace(/<[^>]*>/g, '').replace(/^["'\s]+|["'\s]+$/g, ''), addr: a }; }
+      if (v && typeof v === 'object'){
+        let e = v; for (const k of Object.keys(v)) if (k.toLowerCase() === 'emailaddress' && v[k] && typeof v[k] === 'object') e = v[k];
+        return { name: ci(e, 'name', 'displayname'), addr: ci(e, 'address', 'emailaddress', 'email') };
+      }
+      return { name: '', addr: '' };
+    };
+    const subject = find(['subject', 'conversationtopic', 'title'], str);
+    if (!subject) return null;
+    const who = find(['from', 'sender', 'fromname', 'sendername', 'senderemailaddress'], v => { const p = person(v); return p.name || p.addr ? p : null; }) || { name: '', addr: '' };
+    const when = find(['receiveddatetime', 'datetimereceived', 'receivedtime', 'senttime', 'sentdatetime', 'datetimesent', 'date', 'received'], v => { const d = new Date(v); return isNaN(d) || typeof v === 'object' ? '' : d.toISOString(); });
+    const preview = find(['bodypreview', 'preview', 'snippet', 'previewtext', 'body', 'content'], v => str(typeof v === 'object' && v ? v.content : v));
+    const id = find(['internetmessageid', 'itemid', 'id', 'immutableid'], v => (typeof v === 'string' || typeof v === 'number') ? String(v) : (v && typeof v.id === 'string' ? v.id : ''));
+    return { subject: subject.slice(0, 300), from: who.name || who.addr, fromAddr: who.addr, date: when, body: htmlToText(preview), id };
+  }
+
   const shortDate = iso => { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); };
   const subtaskTitle = m => clip('Email: ' + m.subject + (m.from ? ' (' + m.from + (m.date ? ', ' + shortDate(m.date) : '') + ')' : m.date ? ' (' + shortDate(m.date) + ')' : ''), 200);
   const noteText = m => clip(['Email: ' + m.subject, m.from ? 'From: ' + m.from + (m.fromAddr && m.fromAddr !== m.from ? ' <' + m.fromAddr + '>' : '') : '', m.date ? 'Date: ' + shortDate(m.date) : '', '', m.body].filter((x, i) => i === 3 || x).join('\n').trim(), 3900);
 
-  return { parse, parseMsg, parseEml, fromText, subtaskTitle, noteText, htmlToText, readCfb };
+  return { parse, parseMsg, parseEml, fromText, fromParts, subtaskTitle, noteText, htmlToText, readCfb };
 });
