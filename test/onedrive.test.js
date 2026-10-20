@@ -49,6 +49,7 @@ test('tokens: refreshes when expired, rotates the refresh token, retries a 401 o
   await od.signIn(CLIENT);
   clock.t += 3600 * 1000;                              // access token has expired
   const t = await od.accessToken(); assert.equal(t, 'acc2'); assert.equal(JSON.parse(store['cos.msauth']).refresh, 'ref2');
+  clock.t += 5 * 60 * 1000;
   ms.expireAccessNow = true;                           // server rejects the token mid-flight
   const ad = od.adapter(); assert.equal(await ad.pull(), null);
   assert.ok(ms.log.filter(l => /oauth2/.test(l) && /token/.test(l)).length >= 3);
@@ -233,4 +234,13 @@ test('a 401 from Graph keeps the sign-in and reports the reason; a blocked downl
   deps.http = async r => { if (!/graph\.microsoft\.com|login\./.test(r.url)) throw new TypeError('Failed to fetch'); return dlOrig(r); };
   const got = await od.adapter().pull();
   assert.ok(got && got.data);
+});
+
+test('a 401 on a brand-new token does not trigger a chain of token requests (Microsoft stops apps that loop)', async () => {
+  const ms = fakeMicrosoft(), { od, deps } = setup(ms);
+  await od.signIn(CLIENT);
+  const orig = deps.http; let tokenCalls = 0;
+  deps.http = async r => { if (/oauth2/.test(r.url) && /\/token/.test(r.url)) tokenCalls++; return /root:/.test(r.url) ? json(401, { error: { code: 'unauthenticated', message: 'Unauthenticated' } }) : orig(r); };
+  for (let i = 0; i < 5; i++) await assert.rejects(od.adapter().pull(), e => e.refused);
+  assert.equal(tokenCalls, 0);
 });

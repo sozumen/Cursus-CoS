@@ -89,7 +89,7 @@
         if (mine.cancelled) { const e = new Error('Sign-in cancelled.'); e.cancelled = true; throw e; }
         if (t.status === 200){
           const j = parse(t.text);
-          await store({ clientId, access: j.access_token, exp: now() + (j.expires_in || 3600) * 1000, refresh: j.refresh_token || '', name: '' });
+          await store({ clientId, iat: now(), access: j.access_token, exp: now() + (j.expires_in || 3600) * 1000, refresh: j.refresh_token || '', name: '' });
           flow = null;
           await learnName();
           return { name: tok.name };
@@ -146,7 +146,7 @@
         return { ok: false, silent: !!p.silent, error: e.message };
       }
       const j = parse(r.text);
-      await store({ clientId: p.clientId, access: j.access_token, exp: now() + (j.expires_in || 3600) * 1000, refresh: j.refresh_token || '', name: '', web: true });
+      await store({ clientId: p.clientId, iat: now(), access: j.access_token, exp: now() + (j.expires_in || 3600) * 1000, refresh: j.refresh_token || '', name: '', web: true });
       await learnName();
       try{ await deps.kv.remove(SILENT); }catch(e){}
       return { ok: true, name: tok.name, silent: !!p.silent };
@@ -175,7 +175,7 @@
             throw e;
           }
           const j = parse(r.text);
-          await store(Object.assign({}, t, { access: j.access_token, exp: now() + (j.expires_in || 3600) * 1000, refresh: j.refresh_token || t.refresh }));
+          await store(Object.assign({}, t, { iat: now(), access: j.access_token, exp: now() + (j.expires_in || 3600) * 1000, refresh: j.refresh_token || t.refresh }));
           return tok.access;
         })().finally(() => { refreshing = null; });
       }
@@ -189,7 +189,9 @@
       for (let attempt = 0; attempt < 2; attempt++){
         const token = await accessToken(attempt > 0);
         const r = await deps.http({ url, method, headers: Object.assign({ Authorization: 'Bearer ' + token, Accept: 'application/json' }, opts.headers || {}), body: opts.body });
-        if (r.status === 401 && attempt === 0) continue;
+        // A 401 on a token that is only seconds old will not be cured by asking for another one, and asking again and
+        // again makes Microsoft stop the app ("client request loop", AADSTS50196). Renew only if the token is a few minutes old.
+        if (r.status === 401 && attempt === 0){ const t = await load(); if (!(t && t.iat && now() - t.iat < 3 * 60 * 1000)) continue; }
         r.req = method + ' ' + url.replace(GRAPH, '').replace(/\?.*$/, '').replace(/^\/me\/drive\/root:\/Apps\/Cursus%20CoS\//, '…/');
         return r;
       }

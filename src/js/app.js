@@ -98,7 +98,7 @@ function pushReminders(){
 }
 
 /* ---------- sync ---------- */
-const syncState = { running:false, timer:0, again:false };
+const syncState = { running:false, timer:0, again:false, hold:0 };
 const OD = CoS.onedrive;
 function scheduleSync(delay = 2500){
   if (!S || !S.meta.sync || S.meta.sync.mode === 'off') return;
@@ -119,6 +119,8 @@ async function syncNow(manual){
   const c = S && S.meta.sync; if (!c || c.mode === 'off') return;
   if (syncState.running){ syncState.again = true; return; }   // a change alert arrived mid-sync: go round once more
   if (S.sample){ if (manual) toast('Clear the sample data first (Settings, Data).'); return; }
+  if (!manual && syncState.hold > Date.now()) return;   // OneDrive refused us a moment ago: do not hammer it every 20 seconds
+  if (manual) syncState.hold = 0;
   if (dirty){ reconcileDone(S.tasks, undefined, S.boards); trackStages(S.tasks); stampChanges(S, hashes, nowISO()); }   // edits still waiting for the save debounce must be stamped before merging
   if (c.mode === 'onedrive'){
     const st = await OD.status();
@@ -145,6 +147,7 @@ async function syncNow(manual){
     c.last = nowISO(); c.error = '';
   }catch(e){
     c.error = String((e && e.message) || e);
+    if (e && e.refused) syncState.hold = Date.now() + 5 * 60 * 1000;
     // Only show "signed out" when the sign-in really is gone. A refusal from OneDrive keeps the sign-in and shows the reason.
     if (e && e.auth && c.mode === 'onedrive'){ try{ ui.od.status = await OD.status(); }catch(x){ ui.od.status = { signedIn:false }; } }
   }
