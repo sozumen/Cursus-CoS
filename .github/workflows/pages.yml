@@ -1,0 +1,42 @@
+# Publishes the web app to GitHub Pages every time you push to the main branch.
+# One-time: in the repository, Settings → Pages → Build and deployment → Source: "GitHub Actions".
+name: Publish web app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # --ignore-scripts: the Windows and Android tooling is not needed (or downloaded) just to build the web app
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: node scripts/build.mjs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: www
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

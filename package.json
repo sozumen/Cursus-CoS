@@ -1,0 +1,84 @@
+{
+  "name": "cursus-cos",
+  "productName": "Cursus CoS",
+  "version": "1.0.0",
+  "description": "Cursus CoS: Kanban, table and calendar task management. One web codebase, packaged for Windows (Electron) and Android (Capacitor).",
+  "main": "electron/main.js",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:single": "node scripts/build.mjs --single",
+    "test": "node --test test/*.test.js",
+    "start": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win",
+    "cap:add:android": "cap add android",
+    "cap:sync": "npm run build && cap sync android",
+    "cap:open": "cap open android",
+    "assets": "capacitor-assets generate --android",
+    "dist:win:msi": "npm run build && electron-builder --win msi",
+    "dist:win:setup": "npm run build && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.5",
+    "@capacitor/local-notifications": "^8.3.1",
+    "@capacitor/preferences": "^8.0.1",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@capacitor/assets": "latest",
+    "@capacitor/cli": "^8.5.3",
+    "@fontsource/bricolage-grotesque": "^5.3.0",
+    "@fontsource/instrument-sans": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "electron": "^44.8.0",
+    "electron-builder": "^26.15.3",
+    "jsdom": "^26.0.0",
+    "lucide": "0.263.0",
+    "tailwindcss": "3.4.19"
+  },
+  "build": {
+    "appId": "com.cursus.cos",
+    "productName": "Cursus CoS",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "www/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Cursus CoS",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true
+    },
+    "msi": {
+      "oneClick": false,
+      "perMachine": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": false
+    },
+    "artifactName": "${productName}-${version}-${os}-setup.${ext}"
+  },
+  "author": {
+    "name": "Cursus CoS"
+  }
+}

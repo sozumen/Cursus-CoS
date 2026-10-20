@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#0c1315">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' file: data: blob:; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data: blob:; font-src 'self' file: data:; connect-src 'self' file: https: wss:; manifest-src 'self' file:; worker-src 'self' file:">
+<title>Cursus CoS</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles/tailwind.css">
+<link rel="stylesheet" href="styles/fonts.css">
+<link rel="stylesheet" href="styles/app.css">
+</head>
+<body>
+<div id="bgLayer"></div>
+<div id="shell">
+  <div id="scrim" data-act="side-close"></div>
+  <aside id="side" class="panel" aria-label="Boards and projects"></aside>
+  <main id="main">
+    <header id="toolbar" class="panel"></header>
+    <div id="viewbar" class="panel"></div>
+    <div id="notice" class="panel"></div>
+    <div id="content"></div>
+  </main>
+</div>
+<div id="popRoot"></div>
+<div id="ctxRoot"></div>
+<div id="modalRoot"></div>
+<div id="confirmRoot"></div>
+<div id="toasts" aria-live="polite"></div>
+<div id="printRoot" aria-hidden="true"></div>
+
+<script src="vendor/lucide.min.js"></script>
+<script src="vendor/socket.io.min.js"></script>
+<script src="js/core.js"></script>
+<script src="js/host.js"></script>
+<script src="js/onedrive.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/ingest.js"></script>
+<script src="js/zenkit.js"></script>
+<script src="js/tools.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
