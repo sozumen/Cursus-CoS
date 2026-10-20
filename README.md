@@ -41,28 +41,23 @@ npm run dist:win     # build installer + portable exe into ./release  (run this 
 
 ## Android
 
-One-time setup (needs Node, Android Studio and a JDK):
+The APK is built by `.github/workflows/android.yml` on every push that touches the app, and published to a rolling pre-release tagged `android`. Fixed download link (open it in Chrome on the phone):
 
-```bash
-npm install
-npm run cap:add:android      # creates ./android
-```
+https://github.com/sozumen/Cursus-CoS/releases/download/android/Cursus-CoS.apk
 
-1. **Permissions.** In `android/app/src/main/AndroidManifest.xml`, inside `<manifest>`, add:
-   ```xml
-   <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-   <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
-   ```
-   On Android 12+ the user may also need to allow "Alarms & reminders" for the app so reminders arrive on time.
-2. **Notification icon.** Copy `build/android/ic_stat_icon.png` to `android/app/src/main/res/drawable/`.
-3. **Launcher icon (optional).** `npm run assets` generates Android icons from `assets/icon-only.png`.
+**One-time setup: signing key.** Every build must be signed with the same key, or Android refuses to update the installed app. Create one keystore, keep a copy somewhere safe (never in the repo), and add three repository secrets (Settings, Secrets and variables, Actions):
 
-Then, each time you change the app:
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | the keystore file, base64-encoded (`base64 -w0 cursus.keystore`) |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore password (the key uses the same one) |
+| `ANDROID_KEY_ALIAS` | `cursus` |
 
-```bash
-npm run cap:sync     # rebuilds www/ and copies it into the Android project
-npm run cap:open     # opens Android Studio; press Run, or Build > Generate Signed Bundle / APK
-```
+Without them the workflow still builds, but signs with a debug key; do not install that build as your long-term app.
+
+**Install and update.** Open the link in Chrome, allow "install unknown apps" for Chrome when asked, install. The app checks GitHub about twice a day and shows a "newer version is ready" message with a Download button (Settings, Data, "Check for a newer version" checks on demand). Installing the new APK over the old one keeps your data.
+
+**Building locally instead** (needs Node, Android Studio and a JDK): `npm run cap:sync`, then `npm run cap:open`.
 
 The Android hardware Back button closes dialogs first, then minimizes the app.
 
@@ -328,7 +323,7 @@ Your data is never part of the app. It lives in the browser's storage (web), in 
 |---|---|---|
 | **Web (GitHub Pages)** | Every push to `main` is built and published by `.github/workflows/pages.yml`. | Nothing. Open the app; a "new version is ready, Reload" message appears. |
 | **Windows (installed)** | Every push that changes the app is built by `.github/workflows/release-windows.yml` into a GitHub Release (`1.0.<run number>`). The installed app checks 15 seconds after start and every 6 hours, downloads it, and asks to restart. | Click **Restart now** (or just quit; it installs on exit). Tray icon → *Check for updates* checks on demand. |
-| **Android** | Not automatic yet. Until there is an APK, open the web app in Chrome and use **Add to Home screen**; it updates like the web app and syncs through OneDrive. | See below. |
+| **Android** | Every push that changes the app builds a new APK at a fixed link. The app tells you when a newer build exists. | Tap **Download**, then install over the old one (same signing key, data is kept). |
 
 **First Windows install:** download `Cursus-CoS-Setup-<version>.exe` from the repository's **Releases** page and run it once (Windows SmartScreen may say "Windows protected your PC": More info → Run anyway; the app is not code-signed). After that it keeps itself current. The portable `.exe` and `npm start` do not self-update.
 
@@ -338,7 +333,7 @@ Your data is never part of the app. It lives in the browser's storage (web), in 
 - Old data is upgraded automatically when the app starts (`normalize` in `core.js`); tests restore backups from earlier versions and damaged files.
 - Keep the app ID (`com.cursus.cos`) and the OneDrive file name unchanged, or an update would look like a different app.
 
-**Android, later.** An APK only updates in place if every build is signed with the same key, and the key must never be lost or regenerated, or Android refuses the update and the app (with its local data) has to be uninstalled. When you build the first APK, create one keystore, keep a copy somewhere safe, and store it as a GitHub secret so a workflow can sign every build with it. Google Play (internal testing, a one-time $25 developer fee) is the only way Android updates itself without you.
+**Android key.** An APK only updates in place if every build is signed with the same key. If the key is lost or regenerated, Android refuses the update and the app (with its local data) must be uninstalled; the OneDrive copy keeps the data safe. Google Play is the only way Android updates itself without you.
 
 
 ## Ranking inside a column, and "In process"

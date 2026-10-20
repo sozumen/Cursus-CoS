@@ -2138,7 +2138,7 @@ function settingsHTML(){
   } else if (tab === 'sync'){
     body = syncTabHTML();
   } else {
-    body = `<div class="card-box"><b style="font-weight:650">This device</b><p class="note" style="margin-top:4px">Running as: ${esc(Host.label)}${ui.info && ui.info.dataPath ? `<br>Data folder: <span class="mono">${esc(ui.info.dataPath)}</span>` : ''}${ui.info && ui.info.version ? `<br>Version ${esc(ui.info.version)}` : ''}</p></div>
+    body = `<div class="card-box"><b style="font-weight:650">This device</b><p class="note" style="margin-top:4px">Running as: ${esc(Host.label)}${ui.info && ui.info.dataPath ? `<br>Data folder: <span class="mono">${esc(ui.info.dataPath)}</span>` : ''}${ui.info && ui.info.version ? `<br>Version ${esc(ui.info.version)}${ui.info.build ? ' (build ' + esc(ui.info.build) + ')' : ''}` : ''}</p>${Host.platform === 'android' ? `<button class="btn" style="margin-top:8px" data-act="app-update">Check for a newer version</button>` : ''}</div>
       <div class="card-box" style="margin-top:12px"><b style="font-weight:650">Import from Zenkit</b><p class="note" style="margin:4px 0 10px">In Zenkit, open the list's settings and choose Export as JSON. Choose that file here. You see a preview first and can change where each Zenkit stage goes before anything is imported.</p><label class="btn" for="zkFile" style="cursor:pointer">${ic('upload')}Choose Zenkit JSON file</label><input id="zkFile" type="file" accept="application/json,.json" style="width:0;height:0;opacity:0;position:absolute"></div>
       <div class="card-box" style="margin-top:12px"><b style="font-weight:650">Back up</b><p class="note" style="margin:4px 0 10px">Everything lives in this browser's local storage. Copy the backup somewhere safe, or move your data to another browser.</p><div class="flex flex-wrap gap-2"><button class="btn" data-act="data-save">${ic('download')}Save backup file</button><button class="btn" data-act="data-copy">${ic('copy')}Copy backup JSON</button></div></div>
       <div class="card-box" style="margin-top:12px"><b style="font-weight:650">Restore</b><p class="note" style="margin:4px 0 8px">Paste a backup or choose a file. This replaces your current data.</p><textarea id="restoreJson" class="inp" rows="4" style="font-family:var(--font-mono);font-size:12px" placeholder="Paste backup JSON"></textarea>
@@ -2200,6 +2200,20 @@ function ingestEmails(msgs, adapter = 'exchange'){
   if (added){ runAutomation(); save(); render(); }
   return { added, skipped };
 }
+/* ---------- Android: tell the person when a newer APK is on GitHub (a sideloaded app cannot update itself) ---------- */
+const APK_URL = 'https://github.com/sozumen/Cursus-CoS/releases/download/android/Cursus-CoS.apk';
+async function checkAppUpdate(manual){
+  if (Host.platform !== 'android') return;
+  try{
+    const info = await Host.info(), mine = +info.build || 0;
+    const r = await Host.http({ url: 'https://api.github.com/repos/sozumen/Cursus-CoS/releases/tags/android', method: 'GET', headers: { Accept: 'application/vnd.github+json' } });
+    if (r.status !== 200){ if (manual) toast('Could not check for a new version right now.'); return; }
+    const n = +((/Android build:\s*(\d+)/.exec((JSON.parse(r.text) || {}).body || '') || [])[1]) || 0;
+    if (n > mine) toast(`A newer version of the app is ready (build ${n}, you have ${mine}).`, { label:'Download', fn:() => Host.openExternal(APK_URL) }, 20000);
+    else if (manual) toast('You have the latest version.', null, 3000);
+  }catch(e){ if (manual) toast('Could not check for a new version right now.'); }
+}
+
 /* ---------- Gmail: email in, as tasks and subtasks ---------- */
 const GM = CoS.gmailLib.create({ http: r => Host.http(r), kv: { get: k => Host.kv.get(k), set: (k, v) => Host.kv.set(k, v), remove: k => Host.kv.remove(k) }, loopback: Host.loopback, openExternal: u => Host.openExternal(u) });
 const gmCfg = () => S.settings.integrations.gmail;
@@ -2548,6 +2562,7 @@ const ACTIONS = {
     if (!await confirmBox({ title:'Sign out of Gmail?', body:'The app stops reading your mail. Tasks it already made are kept.', ok:'Sign out' })) return;
     await GM.signOut(); ui.gm.status = { signedIn:false }; gmCfg().enabled = false; save(); renderModal();
   },
+  'app-update'(){ checkAppUpdate(true); },
   'sync-now'(){ syncNow(true); },
   async 'od-signin'(){
     const c = S.meta.sync, o = ui.od, id = ($('#odClient') || {}).value || c.clientId || '';
@@ -3011,6 +3026,7 @@ async function boot(){
   }, 20000);
   await odResume();
   pushReminders(); scheduleSync(1500); odWatch();
+  if (Host.platform === 'android') setTimeout(() => { Host.kv.get('cos.updchk').then(v => { if (Date.now() - (+v || 0) > 12 * 36e5){ Host.kv.set('cos.updchk', String(Date.now())).catch(() => {}); checkAppUpdate(false); } }).catch(() => {}); }, 9000);
   if (Host.loopback){ setTimeout(() => gmailPoll(false), 6000); setInterval(() => { if (!document.hidden) gmailPoll(false); }, 5 * 60 * 1000); }
   registerSW();
 }

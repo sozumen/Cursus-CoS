@@ -114,6 +114,7 @@
   const BUILD = '__BUILD__';   // filled in by scripts/build.mjs
   async function info(){
     if (el && el.info) { try{ return await el.info(); }catch(e){} }
+    if (platform === 'android' && P.App && P.App.getInfo){ try{ const i = await P.App.getInfo(); return { platform, version: i.version || '', build: String(i.build || ''), dataPath: '' }; }catch(e){} }
     return { platform, version: platform === 'web' && BUILD && BUILD[0] !== '_' ? 'web build ' + BUILD : '', dataPath: '' };
   }
 
