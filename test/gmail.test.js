@@ -110,3 +110,21 @@ test('plan: new tasks, subtasks by title or thread, completion ticks an existing
   p = plan({ id: '10', subject: '#sub quarterly review of vendors: typo' }); assert.equal(p.parent.title, 'Quarterly review', 'the title is part of what was written');
   p = plan({ id: '11', subject: '#sub totally different words: step' }); assert.equal(p.action, 'task', 'a weak match is never guessed');
 });
+
+test('after Google ends the sign-in, the client ID and secret are remembered and the reason survives a restart', async () => {
+  const store = {}, kv = { get: async k => store[k] ?? null, set: async (k, v) => { store[k] = v; }, remove: async k => { delete store[k]; } };
+  store['cos.gmailauth'] = JSON.stringify({ clientId: CLIENT, clientSecret: 'GOCSPX-abc', access: 'old', exp: 0, refresh: 'r1', iat: 0, email: 'me@x.com' });
+  const http = async () => ({ status: 400, text: JSON.stringify({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }) });
+  const g1 = create({ kv, http, now: () => Date.UTC(2026, 9, 20) });
+  await assert.rejects(() => g1.accessToken(), /Google ended the Gmail sign-in/);
+  assert.equal(store['cos.gmailauth'], undefined);
+  const g2 = create({ kv, http });   // a fresh start of the app
+  const st = await g2.status();
+  assert.equal(st.signedIn, false); assert.match(st.error, /invalid_grant: Token has been expired/); assert.equal(st.saved.hasSecret, true); assert.equal(st.saved.clientId, CLIENT);
+});
+
+test('signing in again with the secret field blank reuses the saved secret (and still asks when none is saved)', async () => {
+  const mk = saved => { const store = saved ? { 'cos.gmailclient': JSON.stringify({ clientId: CLIENT, clientSecret: 'GOCSPX-abc' }) } : {}; return create({ kv: { get: async k => store[k] ?? null, set: async () => {}, remove: async () => {} }, http: async () => ({ status: 500, text: '' }) }); };
+  await assert.rejects(() => mk(true).signIn(CLIENT, ''), /works in the Windows app/);   // got past the secret check
+  await assert.rejects(() => mk(false).signIn(CLIENT, ''), /Paste the client secret/);
+});

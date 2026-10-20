@@ -18,7 +18,7 @@
   const TOKEN = 'https://oauth2.googleapis.com/token';
   const API = 'https://gmail.googleapis.com/gmail/v1/users/me';
   const SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
-  const KEY = 'cos.gmailauth';
+  const KEY = 'cos.gmailauth', KEY2 = 'cos.gmailclient';   // KEY holds the sign-in; KEY2 outlives it: the client ID and secret, plus why the last sign-in ended
   const CLIENT_RE = /^[0-9]+-[0-9a-z_]+\.apps\.googleusercontent\.com$/i;
 
   const form = o => Object.keys(o).map(k => encodeURIComponent(k) + '=' + encodeURIComponent(o[k])).join('&');
@@ -36,6 +36,13 @@
       try{ const raw = await deps.kv.get(KEY); tok = raw ? JSON.parse(raw) : null; }catch(e){ tok = null; }
       return tok;
     }
+    let creds;
+    async function loadCreds(){
+      if (creds !== undefined) return creds;
+      try{ const raw = await deps.kv.get(KEY2); creds = raw ? JSON.parse(raw) : null; }catch(e){ creds = null; }
+      return creds || (creds = {});
+    }
+    async function saveCreds(c){ creds = c; try{ await deps.kv.set(KEY2, JSON.stringify(c)); }catch(e){} }
     async function store(t){ tok = t; if (t) lastErr = ''; try{ if (t) await deps.kv.set(KEY, JSON.stringify(t)); else await deps.kv.remove(KEY); }catch(e){} }
 
     function googleError(r){
@@ -50,6 +57,7 @@
     /* ---------- sign in ---------- */
     async function signIn(clientId, clientSecret){
       clientId = String(clientId || '').trim(); clientSecret = String(clientSecret || '').trim();
+      { const sv = await loadCreds(); if (!clientSecret && sv.clientSecret && sv.clientId === clientId) clientSecret = sv.clientSecret; }
       if (!CLIENT_RE.test(clientId)) throw new Error('That does not look like a Google client ID. It ends in .apps.googleusercontent.com');
       if (!clientSecret) throw new Error('Paste the client secret too. Google gives one to every desktop-app client.');
       if (!deps.loopback || !deps.crypto && !globalThis.crypto) throw new Error('Gmail sign-in works in the Windows app.');
@@ -72,10 +80,11 @@
       const j = parse(r.text);
       if (!j.refresh_token) throw new Error('Google did not give this app permission to stay signed in. Remove the app at myaccount.google.com/permissions and sign in again.');
       await store({ clientId, clientSecret, access: j.access_token, exp: now() + (j.expires_in || 3600) * 1000, refresh: j.refresh_token, iat: now(), email: '' });
+      await saveCreds({ clientId, clientSecret, err: '' });
       try{ const p = await api('/profile'); if (p.status === 200){ tok.email = String(parse(p.text).emailAddress || '').toLowerCase(); await store(tok); } }catch(e){}
       return { email: tok.email };
     }
-    async function signOut(){ await store(null); lastErr = ''; }
+    async function signOut(){ await store(null); lastErr = ''; { const sv = await loadCreds(); if (sv.err) await saveCreds({ clientId: sv.clientId, clientSecret: sv.clientSecret, err: '' }); } }
 
     /* ---------- tokens ---------- */
     async function accessToken(){
@@ -89,6 +98,7 @@
             const e = googleError(r);
             if (e.code === 'invalid_grant' || e.code === 'invalid_client'){
               lastErr = (e.code + ': ' + e.message).slice(0, 300); await store(null);
+              { const sv = await loadCreds(); await saveCreds({ clientId: sv.clientId || t.clientId, clientSecret: sv.clientSecret || t.clientSecret, err: lastErr, errAt: new Date(now()).toISOString() }); }
               e.message = 'Google ended the Gmail sign-in (' + lastErr + '). Sign in again. If this happens every week, set the Google consent screen to "In production".'; e.auth = true;
             }
             throw e;
@@ -146,7 +156,10 @@
       return { messages: out, listed: (parse(l.text).messages || []).length };
     }
 
-    async function status(){ const t = await load(); return { signedIn: !!t, email: (t && t.email) || '', error: t ? '' : lastErr }; }
+    async function status(){
+      const t = await load(), sv = await loadCreds();
+      return { signedIn: !!t, email: (t && t.email) || '', error: t ? '' : (lastErr || sv.err || ''), errAt: t ? '' : (sv.errAt || ''), saved: { clientId: sv.clientId || '', hasSecret: !!sv.clientSecret } };
+    }
     return { signIn, signOut, status, fetchRecent, accessToken, _toMessage: toMessage };
   }
   return { create, CLIENT_RE, SCOPE, KEY };
