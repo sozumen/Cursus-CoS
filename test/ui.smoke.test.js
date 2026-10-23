@@ -1197,3 +1197,52 @@ test('Outlook drop: onto an open task, dropped text, and the setting is in Setti
   a.change(sel, 'note'); assert.equal(S(a).settings.integrations.dropMail.as, 'note');
   assert.deepEqual(a.errs, []); a.close();
 });
+
+/* ---------- awaiting a response, and focus views ---------- */
+test('awaiting a response: shades the card, offers a follow-up reminder, removes only its own reminder, clears on done', { skip }, async () => {
+  const a = await launch(), { d, click } = a, st = S(a);
+  const card = firstCard(a, '.col:not([data-status=done]) .card'), id = card.dataset.id, t = () => st.tasks.find(x => x.id === id);
+  t().reminder = null;
+  click(`.card[data-id="${id}"] [data-act=toggle-await]`); await tick(20);
+  assert.ok(t().awaiting, 'marked'); assert.ok(d.querySelector(`.card[data-id="${id}"].awaiting`), 'shaded'); assert.ok(d.querySelector(`.card[data-id="${id}"] .aw-line`));
+  assert.match(d.querySelector('#popRoot').textContent, /Want a reminder to follow up/);
+  click('#popRoot [data-act=aw-remind][data-v="3"]'); await tick(20);
+  const want = a.w.eval('CoS.core.addDays(CoS.core.todayStr(), 3)');
+  assert.equal(t().reminder.type, 'at'); assert.equal(t().reminder.at.slice(0, 10), want); assert.equal(t().awaiting.remAt, t().reminder.at);
+  assert.match(d.querySelector(`.card[data-id="${id}"] .aw-line`).textContent, /follow up/);
+  // clearing removes the reminder it made
+  click(`.card[data-id="${id}"] [data-act=toggle-await]`); await tick(20);
+  assert.equal(t().awaiting, null); assert.equal(t().reminder, null);
+  // a reminder the person set is kept, and is only replaced if they choose a day
+  t().reminder = { type: 'at', at: '2030-01-01T09:00' };
+  click(`.card[data-id="${id}"] [data-act=toggle-await]`); await tick(20);
+  assert.match(d.querySelector('#popRoot').textContent, /already has one/);
+  click('#popRoot [data-act=aw-none]'); await tick(10);
+  assert.equal(t().reminder.at, '2030-01-01T09:00');
+  click(`.card[data-id="${id}"] [data-act=toggle-await]`); await tick(20);
+  assert.equal(t().reminder.at, '2030-01-01T09:00', 'clearing keeps a reminder the person set');
+  // completing clears it
+  click(`.card[data-id="${id}"] [data-act=toggle-await]`); await tick(20); click('#popRoot [data-act=aw-none]');
+  click(d.querySelector(`.cbtn[data-id="${id}"]`)); await tick(20);
+  assert.equal(t().awaiting, null);
+  assert.deepEqual(a.errs, []); a.close();
+});
+
+test('focus view: a saved view with one column shows only that column, applying another view restores them, and a column button starts one', { skip }, async () => {
+  const a = await launch(), { d, click } = a, st = S(a);
+  const cols = () => [...d.querySelectorAll('.board > .col')].map(c => c.dataset.status);
+  const all = cols(); assert.ok(all.length >= 6 && all.includes('up-next'));
+  click('.col[data-status="up-next"] [data-act=col-focus]'); await tick(20);
+  const m = a.api.ui.modal; assert.equal(m.type, 'sview'); assert.equal(JSON.stringify(m.stages), '["up-next"]'); assert.match(m.name, /Up Next/i);
+  click('[data-act=sv-save]'); await tick(30);
+  assert.equal(JSON.stringify(st.savedViews[0].stages), '["up-next"]');
+  click(`[data-act=sv-apply][data-id="${st.savedViews[0].id}"]`); await tick(30);
+  assert.deepEqual(cols(), ['up-next']);
+  assert.ok(d.querySelector(`.side-view.on`), 'the focus view is highlighted');
+  // another view without columns brings them back
+  a.api.ui.modal = null; a.api.render();
+  a.api.state.savedViews.push({ id: 'v_all', name: 'Everything', type: 'kanban', boards: [], projects: [], stages: [], h: 210, updated: new Date().toISOString() }); a.api.render();
+  click('[data-act=sv-apply][data-id="v_all"]'); await tick(30);
+  assert.deepEqual(cols(), all);
+  assert.deepEqual(a.errs, []); a.close();
+});

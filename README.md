@@ -336,6 +336,12 @@ Your data is never part of the app. It lives in the browser's storage (web), in 
 **Android key.** An APK only updates in place if every build is signed with the same key. If the key is lost or regenerated, Android refuses the update and the app (with its local data) must be uninstalled; the OneDrive copy keeps the data safe. Google Play is the only way Android updates itself without you.
 
 
+## Awaiting a response, and focus views
+
+**Awaiting a response.** The hourglass on a card (or "Mark awaiting response" in its right-click menu) parks it: the card turns dashed and striped, with a line showing how many days you have waited. Right after you mark it, a small menu asks whether to set a follow-up reminder (tomorrow, 3 days, a week, 2 weeks, or a date you pick; at your usual reminder time). Clearing the mark removes a reminder that this button made, but never one you set yourself; if the task already has a reminder, the menu says so before replacing it. Completing the task clears the mark.
+
+**Focus views.** A saved view can now include columns. In the view's dialog, tick one or more under **Columns** (for example just *Up Next*) and only those columns are shown; tick none for all of them. The quickest way: click the small focus icon in any column's header, which opens the dialog with that column already chosen. The Filter menu's Status choices now hide the other columns in the same way.
+
 ## Drag an email onto a task
 
 In Outlook, drag a message onto a card, a list or table row, a calendar chip, or an open task. It is saved there as a **completed subtask** (`Email: Subject (Sender, Date)`) or, if you prefer, a **note** (a comment holding the sender, date and message text). Choose in Settings, Email, "Drag an email onto a task". The same email dropped twice is added once.

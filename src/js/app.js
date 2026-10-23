@@ -486,7 +486,7 @@ function afterStatus(t, old){
   const wasDone = !!(stagesOf(t.boardId).find(x => x.id === old) || {}).done;
   if (isDone(t) && !wasDone && t.repeat) announceRepeat(spawnRepeat(t, 'completed'));
   if (isDone(t)){
-    t.inProcess = false;
+    t.inProcess = false; t.awaiting = null;
     const freed = S.tasks.filter(x => x.deps.includes(t.id) && !isDone(x) && !isBlocked(x, S.tasks, S.boards));
     if (freed.length) toast(`Unblocked: ${freed.slice(0, 2).map(x => x.title).join(', ')}${freed.length > 2 ? '…' : ''}`, null, 5000);
   } else if (['in-progress', 'review'].includes(t.status) && isBlocked(t, S.tasks, S.boards)){
@@ -711,6 +711,9 @@ function dateChip(t){
 }
 const circleHTML = t => { const on = isDone(t); return `<button type="button" class="cbtn ${on ? 'on' : ''}" data-act="task-done" data-id="${t.id}" aria-pressed="${on}" aria-label="${on ? 'Mark not complete' : 'Mark complete'}: ${esc(t.title)}" title="${on ? 'Completed. Click to reopen.' : 'Mark complete'}">${on ? ic('check', 'w-3 h-3') : ''}</button>`; };
 const procBtnHTML = t => `<button type="button" class="proc-btn ${t.inProcess ? 'on' : ''}" data-act="toggle-proc" data-id="${t.id}" aria-pressed="${!!t.inProcess}" aria-label="${t.inProcess ? 'In process. Click to clear' : 'Mark as in process'}" title="${t.inProcess ? 'In process (click to clear)' : 'Mark as in process: highlights the card without moving it'}">${ic('activity', 'w-4 h-4')}</button>`;
+const awBtnHTML = t => `<button type="button" class="aw-btn ${t.awaiting ? 'on' : ''}" data-act="toggle-await" data-id="${t.id}" aria-pressed="${!!t.awaiting}" aria-label="${t.awaiting ? 'Awaiting a response. Click to clear' : 'Mark as awaiting a response'}" title="${t.awaiting ? 'Awaiting a response (click to clear)' : 'Awaiting a response: shades the card and offers a follow-up reminder'}">${ic('hourglass', 'w-4 h-4')}</button>`;
+const awLine = t => { if (!t.awaiting || isDone(t)) return ''; const d = diffDays(String(t.awaiting.since).slice(0, 10), todayStr()); const ft = t.awaiting.remAt && t.reminder && t.reminder.at === t.awaiting.remAt ? fireTime(t, S.settings.reminderTime) : null;
+  return `<div class="aw-line">${ic('hourglass', 'w-3 h-3')}<span>Awaiting a response${d > 0 ? ` · ${d} day${d > 1 ? 's' : ''}` : ''}${ft ? ` · follow up ${esc(fmtD(ft.toISOString().slice(0, 10)))}` : ''}</span></div>`; };
 const menuBtnHTML = id => `<button type="button" class="card-menu" data-act="task-menu" data-id="${id}" aria-label="Task actions" aria-haspopup="menu">${ic('more-horizontal', 'w-4 h-4')}</button>`;
 const titleHTML = (t, cls = 't-title') => ui.rename === t.id
   ? `<input class="t-rename" data-rename="${t.id}" value="${esc(ui.renameVal)}" maxlength="200" aria-label="Task title">`
@@ -751,8 +754,8 @@ function cardHTML(t, multi, lv = 2){
   if (lv >= 2 && ((multi && b) || (p && sf('project')))) body += `<div class="meta-row">${multi && b ? `<span class="inline-flex items-center gap-1 truncate"><span class="dot" style="background:${hsl(b.h, 65, 52)};width:7px;height:7px"></span>${esc(b.name)}</span>` : ''}${p && sf('project') ? `<span class="inline-flex items-center gap-1 truncate" style="color:var(--ink-2)">${ic('folder', 'w-3 h-3')}${esc(p.name)}</span>` : ''}</div>`;
   const counts = lv >= 3 ? `${t.attachments.length ? `<span class="ico" title="Attachments">${ic('paperclip', 'w-3.5 h-3.5')}${t.attachments.length}</span>` : ''}${t.comments.length ? `<span class="ico" title="Comments">${ic('message-square', 'w-3.5 h-3.5')}${t.comments.length}</span>` : ''}` : '';
   if (lv >= 2 && (sp || icons || counts || people.length)) body += `<div class="meta-row">${sp ? `<span class="inline-flex items-center gap-1 mono" style="font-size:11px">${ic('list-checks', 'w-3.5 h-3.5')}${sp.d}/${sp.n}</span><span class="sub-bar"><i style="width:${sp.pct}%"></i></span>` : '<span style="flex:1"></span>'}<span class="inline-flex items-center gap-2" style="margin-left:auto">${counts}${icons}${people.length ? `<span class="avatars">${people.slice(0, 3).map(avatar).join('')}${people.length > 3 ? `<span class="avatar more">+${people.length - 3}</span>` : ''}</span>` : ''}</span></div>`;
-  return `<article class="card ${c ? 'tint' : 'plain'} ${blocked ? 'is-blocked' : ''} ${isDone(t) ? 'is-done' : ''} ${t.inProcess && !isDone(t) ? 'in-proc' : ''}" tabindex="0" data-drag="card" data-id="${t.id}" data-act="open-task" style="${c ? `--h:${c.h};--s:${c.s}` : ''}">
-    <div class="c-top">${circleHTML(t)}${titleHTML(t)}${procBtnHTML(t)}${menuBtnHTML(t.id)}</div>${meta}${body}
+  return `<article class="card ${c ? 'tint' : 'plain'} ${blocked ? 'is-blocked' : ''} ${isDone(t) ? 'is-done' : ''} ${t.inProcess && !isDone(t) ? 'in-proc' : ''} ${t.awaiting && !isDone(t) ? 'awaiting' : ''}" tabindex="0" data-drag="card" data-id="${t.id}" data-act="open-task" style="${c ? `--h:${c.h};--s:${c.s}` : ''}">
+    <div class="c-top">${circleHTML(t)}${titleHTML(t)}${awBtnHTML(t)}${procBtnHTML(t)}${menuBtnHTML(t.id)}</div>${awLine(t)}${meta}${body}
   </article>`;
 }
 function quickHTML(gid, lane = ''){
@@ -760,7 +763,11 @@ function quickHTML(gid, lane = ''){
   return `<button class="quick-add" data-act="quick-open" data-gid="${esc(gid)}" data-lane="${esc(lane)}" data-status="${esc(gid)}">${ic('plus')}Add task</button>`;
 }
 const gctx = () => ({ projects:S.projects, boards:selBoards(), tasks:scope(), fields:viewFields(), today:todayStr() });
-const groupFor = v => Tools.groupDefs(v.group, gctx());
+const groupFor = v => {
+  const H = Tools.groupDefs(v.group, gctx()), fs = S.settings.filters.status;
+  // With a status filter on (a focus view, or the Filter menu), only those columns are shown, so "Up Next" can stand alone.
+  return H.group === 'status' && fs.length && H.groups.some(g => fs.includes(g.id)) ? Object.assign({}, H, { groups: H.groups.filter(g => fs.includes(g.id)) }) : H;
+};
 const laneFor = v => { const H = groupFor(v); return v.vgroup && v.vgroup !== H.group ? Tools.groupDefs(v.vgroup, gctx()) : null; };
 function aggHTML(items, agg){
   if (agg === 'none') return '';
@@ -785,7 +792,7 @@ function colHTML(H, g, items, lane, view, multi, archMode){
   const lim = (isDoneCol ? 25 : 100) + (ui.limits[lk] || 0), list = all.slice(0, lim), hidden = all.length - list.length;
   const canAdd = H.editable && !archMode;
   return `<section class="col" data-gid="${esc(g.id)}" data-lane="${esc(lane)}" ${H.group === 'status' ? `data-status="${esc(g.id)}"` : ''} ${H.editable ? '' : 'data-drop="0"'} aria-label="${esc(g.name)}">
-    <div class="col-h"><span class="dot" style="background:${hsl(g.h, Math.max(g.s, 30), 52)}"></span><h3>${esc(g.name)}</h3>${aggHTML(all, view.agg)}${!isDoneCol && !archMode && view.sort === 'manual' && all.length > 1 ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="col-sort" data-key="${esc(lk)}" aria-label="Sort ${esc(g.name)} by importance and urgency" title="Sort this column: most important and urgent first">${ic('arrow-down-wide-narrow', 'w-3.5 h-3.5')}</button>` : ''}${isDoneCol && all.length && !archMode ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="archive-done" aria-label="Archive done tasks" title="Archive done tasks">${ic('archive', 'w-3.5 h-3.5')}</button>` : ''}${canAdd ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="quick-open" data-gid="${esc(g.id)}" data-lane="${esc(lane)}" aria-label="Add a task to ${esc(g.name)}" title="Add a task">${ic('plus', 'w-3.5 h-3.5')}</button>` : ''}</div>
+    <div class="col-h"><span class="dot" style="background:${hsl(g.h, Math.max(g.s, 30), 52)}"></span><h3>${esc(g.name)}</h3>${aggHTML(all, view.agg)}${H.group === 'status' && !archMode ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="col-focus" data-key="${esc(g.id)}" aria-label="Save ${esc(g.name)} as a focus view" title="Save just this column as a view">${ic('focus', 'w-3.5 h-3.5')}</button>` : ''}${!isDoneCol && !archMode && view.sort === 'manual' && all.length > 1 ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="col-sort" data-key="${esc(lk)}" aria-label="Sort ${esc(g.name)} by importance and urgency" title="Sort this column: most important and urgent first">${ic('arrow-down-wide-narrow', 'w-3.5 h-3.5')}</button>` : ''}${isDoneCol && all.length && !archMode ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="archive-done" aria-label="Archive done tasks" title="Archive done tasks">${ic('archive', 'w-3.5 h-3.5')}</button>` : ''}${canAdd ? `<button class="btn btn-ghost btn-sm btn-icon" data-act="quick-open" data-gid="${esc(g.id)}" data-lane="${esc(lane)}" aria-label="Add a task to ${esc(g.name)}" title="Add a task">${ic('plus', 'w-3.5 h-3.5')}</button>` : ''}</div>
     <div class="col-body" data-key="${esc(lk)}">${list.map(t => cardHTML(t, multi, lv)).join('')}</div>
     <div class="col-foot">${hidden > 0 ? `<button class="quick-add" data-act="col-more" data-key="${esc(lk)}">${ic('chevrons-down')}Show ${Math.min(50, hidden)} more (${hidden} hidden)</button>` : ''}${canAdd ? quickHTML(g.id, lane) : ''}</div>
   </section>`;
@@ -810,8 +817,8 @@ function rowHTML(t, multi, lv){
     lv >= 2 && multi && b ? `<span class="inline-flex items-center gap-1"><span class="dot" style="background:${hsl(b.h, 65, 52)};width:7px;height:7px"></span>${esc(b.name)}</span>` : '',
     lv >= 2 && sp ? `<span class="inline-flex items-center gap-1 mono" style="font-size:11px">${ic('list-checks', 'w-3.5 h-3.5')}${sp.d}/${sp.n}</span>` : '',
     lv >= 2 ? statusIcons(t) : '', lv >= 2 && people.length ? `<span class="avatars">${people.slice(0, 3).map(avatar).join('')}</span>` : ''].filter(Boolean).join('');
-  return `<div class="lrow ${c ? 'tint' : 'plain'} ${isDone(t) ? 'is-done' : ''} ${t.inProcess && !isDone(t) ? 'in-proc' : ''}" tabindex="0" data-id="${t.id}" data-act="open-task" style="${c ? `--h:${c.h};--s:${c.s}` : ''}">
-    ${circleHTML(t)}<div class="lr-main">${titleHTML(t, 'lr-title')}${lv >= 3 && t.description ? `<p class="c-desc">${esc(snippet(t.description, 180))}</p>` : ''}</div><div class="lr-meta">${chips}</div>${procBtnHTML(t)}${menuBtnHTML(t.id)}</div>`;
+  return `<div class="lrow ${c ? 'tint' : 'plain'} ${isDone(t) ? 'is-done' : ''} ${t.inProcess && !isDone(t) ? 'in-proc' : ''} ${t.awaiting && !isDone(t) ? 'awaiting' : ''}" tabindex="0" data-id="${t.id}" data-act="open-task" style="${c ? `--h:${c.h};--s:${c.s}` : ''}">
+    ${circleHTML(t)}<div class="lr-main">${titleHTML(t, 'lr-title')}${awLine(t)}${lv >= 3 && t.description ? `<p class="c-desc">${esc(snippet(t.description, 180))}</p>` : ''}</div><div class="lr-meta">${chips}</div>${awBtnHTML(t)}${procBtnHTML(t)}${menuBtnHTML(t.id)}</div>`;
 }
 function listHTML(tasks, view){
   const multi = selBoards().length > 1, lv = view.detail == null ? 2 : view.detail, H = view.group ? groupFor(view) : null;
@@ -916,6 +923,10 @@ function openPop(name, el){
   if (ui.pop && ui.pop.name === name){ closePop(); return; }
   const r = el.getBoundingClientRect(); ui.pop = { name, focus: el.dataset.focus || '', rect:{ left:r.left, right:r.right, bottom:r.bottom } }; renderPop();
 }
+function clearAwaiting(t){
+  const mine = t.awaiting && t.awaiting.remAt && t.reminder && t.reminder.at === t.awaiting.remAt;   // a follow-up reminder this button created, not one the person set
+  t.awaiting = null; if (mine) t.reminder = null; t.updated = nowISO(); logTask(t, mine ? 'No longer awaiting a response (follow-up reminder removed)' : 'No longer awaiting a response');
+}
 function closePop(){ ui.pop = null; $('#popRoot').innerHTML = ''; }
 function chips(items, sel, act, k){ return `<div class="pop-chips">${items.map(([v, l]) => `<button class="chip ${sel.includes(v) ? 'on' : ''}" data-act="${act}" data-k="${k}" data-v="${esc(v)}">${esc(l)}</button>`).join('')}</div>`; }
 function renderPop(){
@@ -948,6 +959,12 @@ function renderPop(){
       <h4>Coming up · next 14 days</h4>${up.length ? up.slice(0, 8).map(x => row(x, false)).join('') : '<p class="note">Add a reminder from any task.</p>'}
       <p class="note" style="margin-top:10px">${Host.caps.nativeReminders ? (Host.platform === 'desktop' ? 'Reminders are delivered by Windows even when the window is closed to the tray.' : 'Reminders are scheduled with Android, so they arrive even when the app is closed.') : 'Reminders fire while Cursus CoS is open in a browser tab.'}</p>
       ${canNotify ? `<button class="btn btn-sm" style="margin-top:8px" data-act="notif-enable">${ic('bell-ring')}Enable notifications</button>` : ''}`;
+  } else if (ui.pop.name === 'await'){
+    const t = T(ui.pop.id), has = t && t.reminder && !(t.awaiting && t.awaiting.remAt && t.reminder.at === t.awaiting.remAt);
+    html = `<h4>Awaiting a response</h4><p class="note" style="margin-bottom:8px">Want a reminder to follow up?${has ? ' This task already has one; choosing a day replaces it.' : ''}</p>
+      <div class="pop-chips">${[[1, 'Tomorrow'], [3, 'In 3 days'], [7, 'In a week'], [14, 'In 2 weeks']].map(([d, l]) => `<button class="chip" data-act="aw-remind" data-v="${d}">${l}</button>`).join('')}</div>
+      <div class="flex gap-2 items-center" style="margin-top:10px"><input id="awDate" type="date" class="inp" style="flex:1" min="${todayStr()}" aria-label="Follow-up date"><button class="btn btn-sm" data-act="aw-remind" data-v="pick">Set</button></div>
+      <button class="btn btn-sm" style="margin-top:10px" data-act="aw-none">No reminder</button>`;
   } else if (ui.pop.name === 'view') html = viewPopHTML();
   else if (ui.pop.name === 'addview') html = addViewPopHTML();
   const r = ui.pop.rect, w = Math.min(360, window.innerWidth - 24);
@@ -1281,13 +1298,14 @@ const HUES = [205, 230, 262, 300, 330, 4, 28, 48, 100, 150, 175];
 const SV_ICON = { kanban:'layout-dashboard', list:'list', table:'table', calendar:'calendar' };
 const svBoards = v => { const have = new Set(S.boards.map(b => b.id)), b = v.boards.filter(i => have.has(i)); return b.length ? b : S.boards.map(x => x.id); };
 const svProjects = v => v.projects.filter(i => S.projects.some(p => p.id === i));
+const svStages = v => { const keys = new Set(Tools.unionStages(S.boards).map(g => g.key)); return (v.stages || []).filter(k => keys.has(k)); };
 const sameSet = (a, b) => a.length === b.length && a.every(x => b.includes(x));
 function svActive(v){
-  return !S.settings.filters.archived && activeView().type === v.type && sameSet([...selIds()], svBoards(v)) && sameSet(S.settings.filters.projects, svProjects(v));
+  return !S.settings.filters.archived && activeView().type === v.type && sameSet([...selIds()], svBoards(v)) && sameSet(S.settings.filters.projects, svProjects(v)) && sameSet(S.settings.filters.status, svStages(v));
 }
 function svCount(v){
-  const bs = new Set(svBoards(v)), ps = svProjects(v);
-  return S.tasks.filter(t => bs.has(t.boardId) && !isDone(t) && !t.archived && (!ps.length || ps.includes(t.projectId))).length;
+  const bs = new Set(svBoards(v)), ps = svProjects(v), st = svStages(v);
+  return S.tasks.filter(t => bs.has(t.boardId) && !t.archived && (st.length ? st.includes(Tools.stageKeyOf(t, S.boards)) : !isDone(t)) && (!ps.length || ps.includes(t.projectId))).length;
 }
 function viewsSideHTML(){
   const list = S.savedViews || [];
@@ -1302,6 +1320,7 @@ function applySavedView(id){
   const v = (S.savedViews || []).find(x => x.id === id); if (!v) return;
   S.settings.boardsSel = svBoards(v);
   S.settings.filters.projects = svProjects(v);
+  S.settings.filters.status = svStages(v);   // a view with no columns ticked shows them all again
   S.settings.filters.archived = false;
   const b = mainBoard();
   let lv = b.views.find(x => x.id === S.settings.viewSel[b.id] && x.type === v.type) || b.views.find(x => x.id === b.defaultView && x.type === v.type) || b.views.find(x => x.type === v.type);
@@ -1313,7 +1332,7 @@ function openSavedView(id){
   const ex = id ? (S.savedViews || []).find(x => x.id === id) : null;
   const allB = S.boards.length === selIds().size;
   ui.modal = { type:'sview', id: id || '', name: ex ? ex.name : '', vtype: ex ? ex.type : activeView().type,
-    boards: ex ? ex.boards.slice() : (allB ? [] : [...selIds()]), projects: ex ? ex.projects.slice() : S.settings.filters.projects.slice(), h: ex ? ex.h : HUES[(S.savedViews || []).length % HUES.length] };
+    boards: ex ? ex.boards.slice() : (allB ? [] : [...selIds()]), projects: ex ? ex.projects.slice() : S.settings.filters.projects.slice(), stages: ex ? (ex.stages || []).slice() : S.settings.filters.status.slice(), h: ex ? ex.h : HUES[(S.savedViews || []).length % HUES.length] };
   renderModal(); setTimeout(() => { const i = $('#svName'); if (i) i.focus(); }, 30);
 }
 function savedViewHTML(){
@@ -1327,6 +1346,9 @@ function savedViewHTML(){
       <div class="flex flex-col" style="gap:2px">${S.boards.map(b => tog('sv-b', b.id, b.name, m.boards.includes(b.id), hsl(b.h, 65, 52))).join('')}</div>
       <p class="note" style="margin-top:4px">Tick none to show every board.</p>
       ${S.projects.length ? `<span class="lbl" style="margin-top:14px">Projects</span><div class="flex flex-col" style="gap:2px">${S.projects.map(p => tog('sv-p', p.id, p.name, m.projects.includes(p.id), hsl(p.h, 60, 52))).join('')}</div><p class="note" style="margin-top:4px">Tick none to show tasks from every project.</p>` : ''}
+      <span class="lbl" style="margin-top:14px">Columns</span>
+      <div class="flex flex-col" style="gap:2px">${Tools.unionStages(m.boards.length ? S.boards.filter(b => m.boards.includes(b.id)) : S.boards).map(g => tog('sv-st', g.key, g.name, m.stages.includes(g.key), hsl(g.h, Math.max(g.s, 30), 52))).join('')}</div>
+      <p class="note" style="margin-top:4px">Tick one or more to make a focus view that shows only those columns (for example just Up Next). Tick none to show every column.</p>
       <span class="lbl" style="margin-top:14px">Color</span><div class="flex flex-wrap gap-2">${HUES.map(h => `<button type="button" class="swatch" data-act="sv-hue" data-h="${h}" aria-pressed="${m.h === h}" aria-label="Hue ${h}" style="background:${hsl(h, 65, 52)}"></button>`).join('')}</div>
       ${m.id ? `<button type="button" class="btn btn-sm" style="margin-top:14px" data-act="sv-current">${ic('crosshair', 'w-3.5 h-3.5')}Use what I'm looking at now</button>` : ''}</div>
     <div class="m-foot">${m.id ? `<button class="btn btn-danger" data-act="sv-del">${ic('trash-2')}Delete</button>` : ''}<span style="flex:1"></span><button class="btn" data-act="close-modal">Cancel</button><button class="btn btn-primary" data-act="sv-save">${m.id ? 'Save' : 'Save view'}</button></div></div></div>`;
@@ -1582,7 +1604,7 @@ function renderCtx(){
   let items;
   if (!c.sub){
     items = ctxI('ctx-done', isDone(t) ? 'circle' : 'check-circle-2', isDone(t) ? 'Mark not complete' : 'Mark complete')
-      + ctxI('ctx-proc', 'activity', t.inProcess ? 'Clear in process' : 'Mark in process') + (t.pin != null && rankOn() ? ctxI('ctx-unpin', 'pin', 'Let it rank automatically') : '')
+      + ctxI('ctx-await', 'hourglass', t.awaiting ? 'Clear awaiting response' : 'Mark awaiting response') + ctxI('ctx-proc', 'activity', t.inProcess ? 'Clear in process' : 'Mark in process') + (t.pin != null && rankOn() ? ctxI('ctx-unpin', 'pin', 'Let it rank automatically') : '')
       + ctxI('ctx-rename', 'pencil', 'Rename') + ctxI('ctx-sub', 'layout-dashboard', 'Change Position', '', 'data-sub="position"')
       + '<div class="ctx-sep"></div>' + ctxI('ctx-share', 'external-link', 'Share link') + ctxI('ctx-ptags', 'star', 'Edit personal tags')
       + ctxI('ctx-dup', 'copy', 'Duplicate') + ctxI('ctx-parent', 'corner-down-right', t.parentId && T(t.parentId) ? 'Change parent task…' : 'Make a subtask of…') + ctxI('ctx-sub', 'arrow-right', 'Move Task', '', 'data-sub="move"') + ctxI('ctx-sub', 'copy', 'Copy Task', '', 'data-sub="copy"')
@@ -2538,11 +2560,12 @@ const ACTIONS = {
   'sv-hue'(el){ ui.modal.name = ($('#svName') || {}).value || ui.modal.name; ui.modal.h = +el.dataset.h; renderModal(); },
   'sv-b'(el){ const m = ui.modal, i = m.boards.indexOf(el.dataset.id); m.name = ($('#svName') || {}).value || m.name; if (i >= 0) m.boards.splice(i, 1); else m.boards.push(el.dataset.id); renderModal(); },
   'sv-p'(el){ const m = ui.modal, i = m.projects.indexOf(el.dataset.id); m.name = ($('#svName') || {}).value || m.name; if (i >= 0) m.projects.splice(i, 1); else m.projects.push(el.dataset.id); renderModal(); },
-  'sv-current'(){ const m = ui.modal; m.name = ($('#svName') || {}).value || m.name; m.vtype = activeView().type; m.boards = S.boards.length === selIds().size ? [] : [...selIds()]; m.projects = S.settings.filters.projects.slice(); renderModal(); },
+  'sv-st'(el){ const m = ui.modal, i = m.stages.indexOf(el.dataset.id); m.name = ($('#svName') || {}).value || m.name; if (i >= 0) m.stages.splice(i, 1); else m.stages.push(el.dataset.id); renderModal(); },
+  'sv-current'(){ const m = ui.modal; m.name = ($('#svName') || {}).value || m.name; m.vtype = activeView().type; m.boards = S.boards.length === selIds().size ? [] : [...selIds()]; m.projects = S.settings.filters.projects.slice(); m.stages = S.settings.filters.status.slice(); renderModal(); },
   'sv-save'(){
     const m = ui.modal, name = (($('#svName') || {}).value || '').trim(); if (!name){ toast('Give the view a name first.'); return; }
     S.savedViews = S.savedViews || [];
-    const rec = normSavedView({ id: m.id || uid(), name, type: m.vtype, boards: m.boards.filter(i => boardOf(i)), projects: m.projects.filter(i => projOf(i)), h: m.h });
+    const rec = normSavedView({ id: m.id || uid(), name, type: m.vtype, boards: m.boards.filter(i => boardOf(i)), projects: m.projects.filter(i => projOf(i)), stages: m.stages || [], h: m.h });
     const i = S.savedViews.findIndex(x => x.id === rec.id);
     if (i >= 0) S.savedViews[i] = rec; else S.savedViews.push(rec);
     save(); closeModal(); render();
@@ -2608,10 +2631,35 @@ const ACTIONS = {
     const r = await Host.saveFile({ name:`cursus-cos-backup-${todayStr()}.json`, text: JSON.stringify(S, null, 2), mime:'application/json' });
     toast(r.ok ? `Backup saved to ${r.where || 'your device'}.` : 'Saving a file is blocked here. Use Copy backup JSON instead.', null, 4500);
   },
+  'toggle-await'(el){
+    const t = T(el.dataset.id); if (!t) return;
+    const r = el.getBoundingClientRect(), rect = { left:r.left, right:r.right, bottom:r.bottom };
+    if (t.awaiting){ clearAwaiting(t); save(); render(); return; }
+    t.awaiting = { since: nowISO(), remAt: '' }; t.updated = nowISO(); logTask(t, 'Marked as awaiting a response');
+    save(); render(); ui.pop = { name:'await', id:t.id, focus:'', rect }; renderPop();
+  },
+  'ctx-await'(){
+    const id = ui.ctx.id; closeCtx(); const card = document.querySelector(`[data-act="open-task"][data-id="${id}"]`);
+    const b = card ? card.querySelector('.aw-btn') || card : null; ACTIONS['toggle-await']({ dataset:{ id }, getBoundingClientRect: () => (b || document.body).getBoundingClientRect() });
+  },
+  'aw-remind'(el){
+    const t = T(ui.pop && ui.pop.id); if (!t || !t.awaiting) { closePop(); return; }
+    let date = el.dataset.v;
+    if (date === 'pick'){ date = ($('#awDate') || {}).value || ''; if (!date){ toast('Pick a date first.'); return; } }
+    else date = addDays(todayStr(), +date);
+    const at = `${date}T${S.settings.reminderTime || '09:00'}`, had = t.reminder && !(t.awaiting.remAt && t.reminder.at === t.awaiting.remAt);
+    t.reminder = { type:'at', at }; t.awaiting.remAt = at; t.updated = nowISO(); logTask(t, `Follow-up reminder set for ${date}`);
+    closePop(); save(); render(); toast(`Reminder set for ${fmtD(date)}${had ? ' (it replaced the reminder this task had)' : ''}.`, { label:'Undo', fn:() => { if (t.awaiting){ t.awaiting.remAt = ''; } t.reminder = null; save(); render(); } }, 6000);
+  },
+  'aw-none'(){ closePop(); },
   'toggle-proc'(el){
     const t = T(el.dataset.id); if (!t) return;
     t.inProcess = !t.inProcess; t.updated = nowISO(); logTask(t, t.inProcess ? 'Marked in process' : 'No longer in process');
     save(); render();
+  },
+  'col-focus'(el){
+    const key = el.dataset.key, g = Tools.unionStages(S.boards).find(x => x.key === key);
+    openSavedView(''); const m = ui.modal; m.stages = [key]; m.name = (g ? g.name : 'Column') + ' focus'; m.vtype = 'kanban'; renderModal();
   },
   'col-sort'(el){
     const ids = (colIds[el.dataset.key] || []).slice(), items = ids.map(T).filter(Boolean);

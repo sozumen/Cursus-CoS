@@ -312,11 +312,11 @@ code,.codebox{font-family:var(--font-mono);font-size:12px}
 .card:hover .card-menu,.card-menu:focus-visible,.lrow:hover .card-menu,.lrow:focus-within .card-menu{opacity:1}
 .card-menu:hover{background:rgba(127,127,127,.2);color:var(--ink)}
 @media (hover:none){.card-menu{opacity:1}}
-.proc-btn{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;color:var(--muted);flex:none;opacity:0;margin:-2px 0 0 0}
-.card:hover .proc-btn,.proc-btn:focus-visible,.proc-btn.on,.lrow:hover .proc-btn,.lrow:focus-within .proc-btn{opacity:1}
-.proc-btn:hover{background:rgba(127,127,127,.2);color:var(--ink)}
+.proc-btn,.aw-btn{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;color:var(--muted);flex:none;opacity:0;margin:-2px 0 0 0}
+.card:hover .proc-btn,.proc-btn:focus-visible,.proc-btn.on,.lrow:hover .proc-btn,.lrow:focus-within .proc-btn,.card:hover .aw-btn,.aw-btn:focus-visible,.aw-btn.on,.lrow:hover .aw-btn,.lrow:focus-within .aw-btn{opacity:1}
+.proc-btn:hover,.aw-btn:hover{background:rgba(127,127,127,.2);color:var(--ink)}
 .proc-btn.on{color:var(--accent)}
-@media (hover:none){.proc-btn{opacity:1}}
+@media (hover:none){.proc-btn,.aw-btn{opacity:1}}
 /* In process: a slow pulse that highlights the card without moving it */
 @keyframes procPulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--accent) 55%,transparent),var(--shadow)}50%{box-shadow:0 0 0 5px color-mix(in srgb,var(--accent) 0%,transparent),0 0 16px 2px color-mix(in srgb,var(--accent) 45%,transparent)}}
 .in-proc{border-color:var(--accent)!important;animation:procPulse 2.2s ease-in-out infinite}
@@ -463,3 +463,11 @@ code,.codebox{font-family:var(--font-mono);font-size:12px}
 .paste-box.on{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
 
 .mail-hot{outline:2px dashed var(--accent);outline-offset:-2px;background-image:linear-gradient(var(--accent-soft),var(--accent-soft))}
+
+/* Awaiting a response: muted, dashed, with an hourglass line, so it reads as parked rather than active */
+.awaiting{border-style:dashed!important;border-color:color-mix(in srgb,var(--muted) 70%,transparent)!important;background-image:repeating-linear-gradient(135deg,rgba(127,127,127,.12) 0 6px,transparent 6px 14px)}
+.awaiting .c-top,.awaiting .meta-row,.awaiting .lr-main,.awaiting .lr-meta{opacity:.72}
+.awaiting .aw-btn,.awaiting .card-menu{opacity:1}
+.aw-btn.on{color:#b7791f}
+.aw-line{display:flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:#b7791f;margin:2px 0 4px}
+.lr-main .aw-line{margin:1px 0 0}

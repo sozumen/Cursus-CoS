@@ -125,7 +125,7 @@
       id: uid(), boardId:'', projectId:null, title:'', description:'', status:'consider', priority:'medium', importance:null,
       start:'', due:'', estimate:0, tags:[], deps:[], subitems:[], reminder:null, repeat:null, fired:{}, flag:'', parentId:null,
       source:'manual', external:null, order:0, locked:false, scheduledFlow:false, autoMoved:null,
-      archived:false, archivedAt:'', doneAt:'', prevStatus:'', review:null, stageAt:'', stageId:'', pin:null, inProcess:false,
+      archived:false, archivedAt:'', doneAt:'', prevStatus:'', review:null, stageAt:'', stageId:'', pin:null, inProcess:false, awaiting:null,
       assignees:[], attachments:[], comments:[], custom:{},
       created:now, updated:now, log:[]
     }, p);
@@ -464,6 +464,7 @@
       }
       for (const k of ['start', 'due']) if (t[k] && !/^\d{4}-\d{2}-\d{2}/.test(t[k])) t[k] = '';
       if (t.pin != null && !(typeof t.pin === 'number' && isFinite(t.pin))) t.pin = null;
+      if (t.awaiting != null && !(isObj(t.awaiting) && typeof t.awaiting.since === 'string')) t.awaiting = null;
       if (t.reminder != null && !isObj(t.reminder)) t.reminder = null;
       if (t.review != null && !(isObj(t.review) && t.review.to)) t.review = null;
       if (!t.stageAt && Array.isArray(t.log)){   // older data: the last "Moved A to B" entry, else the creation date (newTask)
@@ -493,7 +494,7 @@
   function normSavedView(v){
     const strs = a => asArr(a).filter(x => typeof x === 'string' && x);
     return { id: v.id, name: String(v.name == null ? '' : v.name).slice(0, 40) || 'View', type: VIEW_TYPES.includes(v.type) ? v.type : 'kanban',
-      boards: strs(v.boards), projects: strs(v.projects), h: typeof v.h === 'number' && isFinite(v.h) ? v.h : 210, updated: v.updated || nowISO() };
+      boards: strs(v.boards), projects: strs(v.projects), stages: strs(v.stages), h: typeof v.h === 'number' && isFinite(v.h) ? v.h : 210, updated: v.updated || nowISO() };
   }
 
   /* ---------- change stamping ----------
